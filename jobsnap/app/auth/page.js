@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "../../lib/supabase/client";
+import { getUserDestination } from "../../lib/supabase/user-route";
 
 export default function AuthPage() {
   const router = useRouter();
@@ -15,9 +16,10 @@ export default function AuthPage() {
   useEffect(() => {
     const supabase = createClient();
 
-    supabase.auth.getUser().then(({ data }) => {
+    supabase.auth.getUser().then(async ({ data }) => {
       if (data.user) {
-        router.replace("/onboarding");
+        const destination = await getUserDestination(supabase, data.user.id);
+        router.replace(destination);
       }
     });
   }, [router]);
@@ -39,7 +41,8 @@ export default function AuthPage() {
       }
 
       if (result.data.session) {
-        router.push("/onboarding");
+        const destination = await getUserDestination(supabase, result.data.user.id);
+        router.push(destination);
         return;
       }
 
