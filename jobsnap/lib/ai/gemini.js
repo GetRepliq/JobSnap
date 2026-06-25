@@ -1,5 +1,6 @@
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
-const GEMINI_MODEL = process.env.GEMINI_MODEL ?? "gemini-2.0-flash";
+const DEFAULT_MODEL = "gemini-2.5-flash";
+const FALLBACK_MODELS = ["gemini-3-flash-preview", "gemini-2.5-flash-lite"];
 
 function ensureApiKey() {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -11,47 +12,80 @@ function ensureApiKey() {
   return apiKey;
 }
 
+function getModelCandidates() {
+  const preferred = process.env.GEMINI_MODEL ?? DEFAULT_MODEL;
+  const fallbacks = FALLBACK_MODELS.filter((model) => model !== preferred);
+  return [preferred, ...fallbacks];
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableStatus(status) {
+  return status === 503 || status === 429;
+}
+
 async function fileToBase64(file) {
   const buffer = Buffer.from(await file.arrayBuffer());
   return buffer.toString("base64");
 }
 
 async function callGeminiJson({ apiKey, systemInstruction, contents }) {
-  const response = await fetch(
-    `${GEMINI_API_BASE}/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        systemInstruction: {
-          parts: [{ text: systemInstruction }],
-        },
-        contents,
-        generationConfig: {
-          temperature: 0.6,
-          responseMimeType: "application/json",
-        },
-      }),
+  const models = getModelCandidates();
+  let lastError = "No models attempted.";
+
+  for (const model of models) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const response = await fetch(
+        `${GEMINI_API_BASE}/models/${model}:generateContent?key=${apiKey}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            systemInstruction: {
+              parts: [{ text: systemInstruction }],
+            },
+            contents,
+            generationConfig: {
+              temperature: 0.6,
+              responseMimeType: "application/json",
+            },
+          }),
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        if (!text) {
+          throw new Error("Gemini returned an empty response.");
+        }
+
+        const trimmed = text
+          .trim()
+          .replace(/^```json\s*/i, "")
+          .replace(/^```\s*/i, "")
+          .replace(/\s*```$/i, "");
+
+        return JSON.parse(trimmed);
+      }
+
+      lastError = await response.text();
+
+      if (isRetryableStatus(response.status) && attempt === 0) {
+        await sleep(2500);
+        continue;
+      }
+
+      break;
     }
-  );
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Gemini request failed: ${errorText}`);
   }
 
-  const data = await response.json();
-  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-  if (!text) {
-    throw new Error("Gemini returned an empty response.");
-  }
-
-  const trimmed = text.trim().replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/\s*```$/i, "");
-
-  return JSON.parse(trimmed);
+  throw new Error(`Gemini request failed: ${lastError}`);
 }
 
 export async function extractContextFromImage({ imageFile, business, prompt }) {

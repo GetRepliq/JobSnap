@@ -19,6 +19,10 @@ export default function WorkspacePage() {
   const [generationResult, setGenerationResult] = useState(null);
   const [composerError, setComposerError] = useState("");
   const fileInputRef = useRef(null);
+  const resultsRef = useRef(null);
+
+  const captions = generationResult?.generation?.captions ?? [];
+  const bestCaptionIndex = generationResult?.generation?.best_caption_index ?? 0;
 
   useEffect(() => {
     const supabase = createClient();
@@ -136,6 +140,7 @@ export default function WorkspacePage() {
       }
 
       const response = await fetch("/api/generate", {
+        credentials: "include",
         method: "POST",
         body: formData,
       });
@@ -147,6 +152,9 @@ export default function WorkspacePage() {
       }
 
       setGenerationResult(payload);
+      requestAnimationFrame(() => {
+        resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
     } catch (error) {
       setComposerError(
         error instanceof Error ? error.message : "Something went wrong."
@@ -186,7 +194,7 @@ export default function WorkspacePage() {
         </header>
 
         <div className="flex-1 px-4 py-10 sm:px-8 lg:px-12">
-          <div className="relative mx-auto flex w-full max-w-[56rem] flex-col items-stretch justify-center overflow-hidden rounded-3xl px-4 py-20 text-center sm:px-6 sm:py-24">
+          <div className="relative mx-auto w-full max-w-[56rem] overflow-hidden rounded-3xl px-4 py-16 text-center sm:px-6 sm:py-20">
             <Image
               src="/bg_elements.png"
               alt=""
@@ -278,49 +286,116 @@ export default function WorkspacePage() {
                 ) : null}
               </form>
             </div>
-
-            {generationResult ? (
-              <div className="mt-6 w-full max-w-[46rem] rounded-3xl border border-zinc-200 bg-white p-5 text-left shadow-sm sm:p-6">
-                <p className="text-sm font-medium text-brand">Generated output</p>
-                <div className="mt-4 space-y-4">
-                  {generationResult.generation?.captions?.map((item, index) => (
-                    <div
-                      key={`${index}-${item.caption?.slice(0, 12) ?? index}`}
-                      className={`rounded-2xl border p-4 ${
-                        index === generationResult.generation.best_caption_index
-                          ? "border-brand bg-brand/5"
-                          : "border-zinc-200 bg-zinc-50"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <p className="text-sm font-semibold text-zinc-900">
-                          Caption {index + 1}
-                        </p>
-                        {index === generationResult.generation.best_caption_index ? (
-                          <span className="rounded-full bg-brand px-2 py-1 text-xs font-medium text-white">
-                            Best
-                          </span>
-                        ) : null}
-                      </div>
-                      <p className="mt-3 text-sm leading-6 text-zinc-700">
-                        {item.caption}
-                      </p>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {item.hashtags?.map((tag) => (
-                          <span
-                            key={tag}
-                            className="rounded-full bg-white px-3 py-1 text-xs text-zinc-600"
-                          >
-                            {tag}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ) : null}
           </div>
+
+          {isSubmitting ? (
+            <div className="mx-auto mt-8 w-full max-w-[46rem] rounded-3xl border border-zinc-200 bg-white p-6 shadow-sm">
+              <div className="flex items-center gap-3">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-brand" />
+                <p className="text-sm font-medium text-zinc-700">
+                  Analyzing your image and writing captions…
+                </p>
+              </div>
+              <div className="mt-4 space-y-3">
+                <div className="h-16 rounded-2xl bg-zinc-100 animate-pulse" />
+                <div className="h-16 rounded-2xl bg-zinc-100 animate-pulse" />
+                <div className="h-16 rounded-2xl bg-zinc-100 animate-pulse" />
+              </div>
+            </div>
+          ) : null}
+
+          {generationResult ? (
+            <div
+              ref={resultsRef}
+              className="mx-auto mt-8 w-full max-w-[46rem] scroll-mt-8"
+            >
+              <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm sm:p-6">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium text-brand">Your post options</p>
+                    <p className="mt-1 text-sm text-zinc-500">
+                      Pick a caption below — the highlighted one is our top pick.
+                    </p>
+                  </div>
+                  {generationResult.conversationId ? (
+                    <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs text-zinc-500">
+                      Saved to history
+                    </span>
+                  ) : null}
+                </div>
+
+                {captions.length > 0 ? (
+                  <div className="mt-5 space-y-4">
+                    {captions.map((item, index) => {
+                      const isBest = index === bestCaptionIndex;
+                      const hashtagText = (item.hashtags ?? [])
+                        .map((tag) => (tag.startsWith("#") ? tag : `#${tag}`))
+                        .join(" ");
+                      const copyText = [item.caption, hashtagText]
+                        .filter(Boolean)
+                        .join("\n\n");
+
+                      return (
+                        <div
+                          key={`${index}-${item.caption?.slice(0, 12) ?? index}`}
+                          className={`rounded-2xl border p-4 sm:p-5 ${
+                            isBest
+                              ? "border-brand bg-brand/5 ring-1 ring-brand/20"
+                              : "border-zinc-200 bg-zinc-50"
+                          }`}
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-semibold text-zinc-900">
+                                Caption {index + 1}
+                              </p>
+                              {isBest ? (
+                                <span className="rounded-full bg-brand px-2 py-0.5 text-xs font-medium text-white">
+                                  Top pick
+                                </span>
+                              ) : null}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => navigator.clipboard.writeText(copyText)}
+                              className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-medium text-zinc-600 transition hover:border-zinc-300 hover:text-zinc-900"
+                            >
+                              Copy
+                            </button>
+                          </div>
+
+                          {item.angle ? (
+                            <p className="mt-2 text-xs text-zinc-500">{item.angle}</p>
+                          ) : null}
+
+                          <p className="mt-3 text-sm leading-7 text-zinc-800">
+                            {item.caption}
+                          </p>
+
+                          {item.hashtags?.length ? (
+                            <div className="mt-4 flex flex-wrap gap-2">
+                              {item.hashtags.map((tag) => (
+                                <span
+                                  key={tag}
+                                  className="rounded-full bg-white px-3 py-1 text-xs text-zinc-600 ring-1 ring-zinc-200"
+                                >
+                                  {tag.startsWith("#") ? tag : `#${tag}`}
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="mt-5 text-sm text-zinc-500">
+                    Generation completed but no captions were returned. Try submitting again.
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : null}
         </div>
       </section>
     </main>
