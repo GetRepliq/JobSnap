@@ -4,12 +4,16 @@ import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "../../lib/supabase/client";
+import { useIsMobile } from "../../lib/hooks/use-is-mobile";
+import MobilePostFlow from "./mobile-post-flow";
 
 export default function WorkspacePage() {
   const router = useRouter();
+  const isMobile = useIsMobile();
   const [loading, setLoading] = useState(true);
   const [userName, setUserName] = useState("there");
   const [businessName, setBusinessName] = useState("");
+  const [instagramHandle, setInstagramHandle] = useState("");
   const [conversations, setConversations] = useState([]);
   const [jobs, setJobs] = useState([]);
   const [initial, setInitial] = useState("J");
@@ -81,6 +85,13 @@ export default function WorkspacePage() {
       const userPrompt =
         userMessage?.content === "Image analysis request" ? "" : userMessage?.content ?? "";
 
+      const loaded = {
+        conversationId,
+        generation,
+        extraction,
+        prompt: userPrompt,
+      };
+
       setSelectedConversationId(conversationId);
       setPrompt(userPrompt);
       setGenerationResult({
@@ -100,12 +111,36 @@ export default function WorkspacePage() {
       requestAnimationFrame(() => {
         resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       });
+
+      return loaded;
     } catch (error) {
       setComposerError(
         error instanceof Error ? error.message : "Could not load conversation."
       );
+      throw error;
     } finally {
       setLoadingConversationId(null);
+    }
+  }
+
+  function handleConversationCreated(payload) {
+    setGenerationResult(payload);
+    setSelectedConversationId(payload.conversationId ?? null);
+
+    if (payload.conversationId) {
+      const title =
+        payload.generation?.captions?.[0]?.caption?.slice(0, 80) ||
+        prompt.slice(0, 80) ||
+        "New post";
+
+      setConversations((previous) => [
+        {
+          id: payload.conversationId,
+          title,
+          created_at: new Date().toISOString(),
+        },
+        ...previous.filter((chat) => chat.id !== payload.conversationId),
+      ]);
     }
   }
 
@@ -136,7 +171,7 @@ export default function WorkspacePage() {
           supabase.from("profiles").select("full_name").eq("id", user.id).maybeSingle(),
           supabase
             .from("businesses")
-            .select("business_name")
+            .select("business_name, instagram_handle")
             .eq("owner_id", user.id)
             .order("created_at", { ascending: false })
             .limit(1),
@@ -157,6 +192,7 @@ export default function WorkspacePage() {
       const name = profile?.full_name?.trim() || user.email?.split("@")[0] || "there";
       setUserName(name);
       setBusinessName(business?.[0]?.business_name || "");
+      setInstagramHandle(business?.[0]?.instagram_handle || "");
       setConversations(chatRows ?? []);
       setJobs(jobRows ?? []);
       setInitial(name.charAt(0).toUpperCase());
@@ -275,11 +311,29 @@ export default function WorkspacePage() {
     }
   };
 
-  if (loading) {
+  if (loading || isMobile === null) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-white text-sm text-zinc-600">
         Loading your workspace...
       </main>
+    );
+  }
+
+  if (isMobile) {
+    return (
+      <MobilePostFlow
+        instagramHandle={instagramHandle}
+        conversations={conversations}
+        loadingConversationId={loadingConversationId}
+        onConversationCreated={handleConversationCreated}
+        onLoadConversation={loadConversation}
+        onReset={handleNewPost}
+        initialGeneration={
+          selectedConversationId ? generationResult?.generation ?? null : null
+        }
+        initialConversationId={selectedConversationId}
+        initialPrompt={prompt}
+      />
     );
   }
 
