@@ -18,11 +18,104 @@ export default function WorkspacePage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [generationResult, setGenerationResult] = useState(null);
   const [composerError, setComposerError] = useState("");
+  const [selectedConversationId, setSelectedConversationId] = useState(null);
+  const [loadingConversationId, setLoadingConversationId] = useState(null);
   const fileInputRef = useRef(null);
   const resultsRef = useRef(null);
 
   const captions = generationResult?.generation?.captions ?? [];
   const bestCaptionIndex = generationResult?.generation?.best_caption_index ?? 0;
+
+  function formatConversationDate(dateString) {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffDays = Math.floor((now - date) / (1000 * 60 * 60 * 24));
+
+    if (diffDays === 0) {
+      return "Today";
+    }
+
+    if (diffDays === 1) {
+      return "Yesterday";
+    }
+
+    if (diffDays < 7) {
+      return `${diffDays}d ago`;
+    }
+
+    return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }
+
+  async function loadConversation(conversationId) {
+    setLoadingConversationId(conversationId);
+    setComposerError("");
+
+    try {
+      const supabase = createClient();
+      const { data: messages, error } = await supabase
+        .from("messages")
+        .select("id, role, content, created_at")
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: true });
+
+      if (error) {
+        throw error;
+      }
+
+      const userMessage = messages?.find((message) => message.role === "user");
+      const assistantMessage = messages?.find((message) => message.role === "assistant");
+
+      let generation = null;
+      let extraction = null;
+
+      if (assistantMessage?.content) {
+        try {
+          const parsed = JSON.parse(assistantMessage.content);
+          generation = parsed.generation ?? null;
+          extraction = parsed.extraction ?? null;
+        } catch {
+          throw new Error("Could not read this conversation.");
+        }
+      }
+
+      const userPrompt =
+        userMessage?.content === "Image analysis request" ? "" : userMessage?.content ?? "";
+
+      setSelectedConversationId(conversationId);
+      setPrompt(userPrompt);
+      setGenerationResult({
+        conversationId,
+        generation,
+        extraction,
+      });
+
+      if (attachedImage?.previewUrl) {
+        URL.revokeObjectURL(attachedImage.previewUrl);
+      }
+      setAttachedImage(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+
+      requestAnimationFrame(() => {
+        resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    } catch (error) {
+      setComposerError(
+        error instanceof Error ? error.message : "Could not load conversation."
+      );
+    } finally {
+      setLoadingConversationId(null);
+    }
+  }
+
+  function handleNewPost() {
+    setSelectedConversationId(null);
+    setGenerationResult(null);
+    setPrompt("");
+    setComposerError("");
+    removeImage();
+  }
 
   useEffect(() => {
     const supabase = createClient();
@@ -52,7 +145,7 @@ export default function WorkspacePage() {
             .select("id,title,created_at")
             .eq("created_by", user.id)
             .order("created_at", { ascending: false })
-            .limit(5),
+            .limit(30),
           supabase
             .from("job_posts")
             .select("id,title,status,created_at")
@@ -152,6 +245,24 @@ export default function WorkspacePage() {
       }
 
       setGenerationResult(payload);
+      setSelectedConversationId(payload.conversationId ?? null);
+
+      if (payload.conversationId) {
+        const title =
+          payload.generation?.captions?.[0]?.caption?.slice(0, 80) ||
+          prompt.slice(0, 80) ||
+          "New post";
+
+        setConversations((previous) => [
+          {
+            id: payload.conversationId,
+            title,
+            created_at: new Date().toISOString(),
+          },
+          ...previous.filter((chat) => chat.id !== payload.conversationId),
+        ]);
+      }
+
       requestAnimationFrame(() => {
         resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       });
@@ -174,7 +285,59 @@ export default function WorkspacePage() {
 
   return (
     <main className="flex min-h-screen bg-white text-zinc-950">
-      <aside className="hidden w-72 shrink-0 border-r border-zinc-200 bg-white lg:flex lg:flex-col" />
+      <aside className="hidden w-72 shrink-0 border-r border-zinc-200 bg-white lg:flex lg:flex-col">
+        <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-5">
+          <p className="text-sm font-semibold text-zinc-900">Past chats</p>
+          <button
+            type="button"
+            onClick={handleNewPost}
+            className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-700 transition hover:bg-zinc-200"
+          >
+            + New
+          </button>
+        </div>
+
+        <nav className="flex-1 overflow-y-auto px-3 py-3">
+          {conversations.length === 0 ? (
+            <p className="px-2 py-4 text-xs leading-5 text-zinc-500">
+              No conversations yet. Generate your first post to see it here.
+            </p>
+          ) : (
+            <ul className="space-y-1">
+              {conversations.map((chat) => {
+                const isSelected = selectedConversationId === chat.id;
+                const isLoading = loadingConversationId === chat.id;
+
+                return (
+                  <li key={chat.id}>
+                    <button
+                      type="button"
+                      onClick={() => loadConversation(chat.id)}
+                      disabled={isLoading}
+                      className={`w-full rounded-xl px-3 py-2.5 text-left transition disabled:opacity-60 ${
+                        isSelected
+                          ? "bg-brand/10 ring-1 ring-brand/20"
+                          : "hover:bg-zinc-50"
+                      }`}
+                    >
+                      <p
+                        className={`truncate text-sm font-medium ${
+                          isSelected ? "text-zinc-900" : "text-zinc-700"
+                        }`}
+                      >
+                        {chat.title?.trim() || "Untitled post"}
+                      </p>
+                      <p className="mt-0.5 text-[11px] text-zinc-400">
+                        {isLoading ? "Loading…" : formatConversationDate(chat.created_at)}
+                      </p>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </nav>
+      </aside>
 
       <section className="flex flex-1 flex-col">
         <header className="flex items-center justify-between px-8 pt-8 sm:px-12">
