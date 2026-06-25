@@ -1,0 +1,59 @@
+Application:
+     ✔ Next.js project initialization and directory structure. @done(26-06-25 13:47)
+     ✔ Supabase integration (Client/Server setup). @done(26-06-25 13:52)
+     ✔ User Authentication (Sign up / Login flow). @done(26-06-25 13:52)
+     ✔ Onboarding flow: Collecting business profile info (Trade, Location, Tone, Instagram). @done(26-06-25 13:52)
+     ✔ Mobile-first Workspace UI with "Past Chats" sidebar. @done(26-06-25 13:52)
+     ✔ AI Integration: Gemini Vision API for image analysis and caption generation. @done(26-06-25 13:52)
+     ✔ Conversation History: Storing and retrieving past generations from Supabase. @done(26-06-25 13:52)
+     ✔ "New Post" flow with image attachment and prompt input. @done(26-06-25 13:52)
+     ✔ Copy-to-clipboard functionality for generated captions. @done(26-06-25 13:52)
+
+Website :
+     ✔ Landing page with high-ROI headlines and "Before/After" visuals. @done(26-06-25 13:52)
+     ☐ Responsive design for landing page.
+     ✔ "Get Started" call-to-action linking to Auth. @done(26-06-25 13:52)
+
+Post Management & Storage :
+     ☐ Image Storage: Implement Supabase Storage upload for job site photos.
+     ☐ Image Compression: Add client-side or server-side compression before storage.
+     ☐ Job Posts Entity: Implement `job_posts` table logic to group multiple generations under one "Job".
+     ☐ Status Tracking: Allow marking posts as 'ready', 'generated', or 'archived'.
+
+Usage & Credits :
+     ☐ Free Tier Logic: Implement the `usage` table to track the "First 20 posts free" offer.
+     ☐ Credit Guardrails: Add middleware/logic to prevent generation if credits are exhausted.
+     ☐ Stripe Integration: Setup subscription plans for "Pro" and "Business" tiers.
+
+Dashboard & Analytics :
+     ☐ Real Dashboard: Build out the `/dashboard` page for high-level business stats.
+     ☐ Engagement Tracking: (Optional) Track if users actually posted the content (via "I posted this" button).
+     ☐ Business Settings: Page to edit business name, trade, and AI tone after onboarding.
+
+Refinement :
+     ☐ Mobile Experience: Further polish `MobilePostFlow.js` for smoother transitions.
+     ☐ Drafting System: Save unfinished prompts as drafts.
+     ☐ Multi-platform support: Add specific caption styles for LinkedIn, X (Twitter), and Facebook.
+
+Website & Brand :
+     ☐ Services Page: Detail how JobSnap works for different trades (Builders, Landscapers, etc.).
+     ☐ Pricing Page: Clear breakdown of free vs paid tiers.
+     ☐ Testimonials Section: Add social proof (once collected).
+     ☐ Footer: Links to Privacy Policy, Terms of Service, and Socials.
+     ☐ Logo Design: Create a simple, descriptive logo (camera emoji/Instagram-style) as per CONTEXT.md.
+     ☐ SEO: Add metadata, OpenGraph images, and sitemap for better search ranking.
+
+
+Marketing & Growth :
+     ☐ Build-in-Public: Start sharing progress on X (Twitter) using the #buildinpublic tag.
+     ☐ Launch Campaign: Prepare for Product Hunt and Indie Hackers launch.
+     ☐ Review Collection: Reach out to first 10 users for feedback and reviews.
+     ☐ Free Post Incentive: Promote the "First 20 posts free" on social media trades groups.
+     ☐ Instagram Integration: (Future) Direct posting to Instagram via API.
+
+
+Infrastructure & Backend :
+     ☐ Database Constraints: Finalize RLS (Row Level Security) policies in Supabase.
+     ☐ Edge Functions: Move heavy AI/Image logic to Supabase Edge Functions if needed.
+     ☐ Error Logging: Integrate Sentry or similar for production error tracking.
+     ☐ Performance: Optimize image loading and Gemini API response times.
