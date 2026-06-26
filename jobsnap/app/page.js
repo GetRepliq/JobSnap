@@ -87,7 +87,7 @@ export default function Home() {
         </div>
 
         {/* Before / After labels */}
-        <div className="relative z-10 mt-20 flex w-full max-w-3xl items-center justify-between px-4">
+        <div className="relative z-10 mt-20 flex w-full max-w-xl items-center justify-between px-4">
           <span className="font-handwritten text-2xl text-zinc-900">
             Before
           </span>
