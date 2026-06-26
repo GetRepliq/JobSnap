@@ -54,6 +54,7 @@ export default function MobilePostFlow({
   captionDrafts: initialCaptionDrafts = {},
 }) {
   const fileInputRef = useRef(null);
+  const copiedCaptionTimeoutRef = useRef(null);
 
   const [step, setStep] = useState(initialGeneration ? 2 : 1);
   const [description, setDescription] = useState(initialPrompt);
@@ -61,6 +62,8 @@ export default function MobilePostFlow({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
+  const [selectedHashtagSelections, setSelectedHashtagSelections] = useState({});
+  const [copiedCaptionIndex, setCopiedCaptionIndex] = useState(null);
   const [generationResult, setGenerationResult] = useState(
     initialGeneration
       ? {
@@ -89,7 +92,10 @@ export default function MobilePostFlow({
     captions[selectedCaptionIndex] ?? captions[generationResult?.generation?.best_caption_index ?? 0] ?? captions[0];
   const selectedCaptionText =
     captionDrafts[selectedCaptionIndex] ?? selectedCaption?.caption ?? "";
-  const selectedHashtags = selectedCaption?.hashtags ?? [];
+  const selectedHashtags =
+    selectedHashtagSelections[selectedCaptionIndex] ??
+    selectedCaption?.hashtags ??
+    [];
   const selectedHashtagText = selectedHashtags.map(formatHashtag).join(" ");
   const selectedCaptionCopyText = buildCaptionText(
     selectedCaptionText,
@@ -116,13 +122,35 @@ export default function MobilePostFlow({
   function syncCaptionDrafts(generation) {
     const captionsList = generation?.captions ?? [];
     const nextDrafts = {};
+    const nextHashtags = {};
 
     captionsList.forEach((item, index) => {
       nextDrafts[index] = item.caption ?? "";
+      nextHashtags[index] = item.hashtags ?? [];
     });
 
     setCaptionDrafts(nextDrafts);
+    setSelectedHashtagSelections(nextHashtags);
     setSelectedCaptionIndex(generation?.best_caption_index ?? 0);
+    setCopiedCaptionIndex(null);
+  }
+
+  function toggleSelectedHashtag(index, hashtag) {
+    const currentTags =
+      selectedHashtagSelections[index] ??
+      captions[index]?.hashtags ??
+      [];
+    const normalizedHashtag = formatHashtag(hashtag);
+    const nextTags = currentTags.some(
+      (tag) => formatHashtag(tag) === normalizedHashtag
+    )
+      ? currentTags.filter((tag) => formatHashtag(tag) !== normalizedHashtag)
+      : [...currentTags, normalizedHashtag];
+
+    setSelectedHashtagSelections((previous) => ({
+      ...previous,
+      [index]: nextTags,
+    }));
   }
 
   function applyGenerationPayload(payload) {
@@ -139,6 +167,14 @@ export default function MobilePostFlow({
       }
     };
   }, [attachedImage]);
+
+  useEffect(() => {
+    return () => {
+      if (copiedCaptionTimeoutRef.current) {
+        clearTimeout(copiedCaptionTimeoutRef.current);
+      }
+    };
+  }, []);
 
   function handleImageChange(event) {
     const file = event.target.files?.[0];
@@ -221,6 +257,8 @@ export default function MobilePostFlow({
     setGenerationResult(null);
     setSelectedCaptionIndex(0);
     setCaptionDrafts({});
+    setSelectedHashtagSelections({});
+    setCopiedCaptionIndex(null);
     setError("");
     setActionMessage("");
     setStep(1);
@@ -279,6 +317,29 @@ export default function MobilePostFlow({
           ? "Caption and hashtags copied."
           : "Caption copied."
     );
+  }
+
+  async function handleCardCopy(index, item) {
+    const payload = buildCaptionText(
+      captionDrafts[index] ?? item.caption ?? "",
+      selectedHashtagSelections[index] ?? item.hashtags ?? []
+    );
+
+    if (!payload) {
+      return;
+    }
+
+    await copyTextToClipboard(payload);
+    setCopiedCaptionIndex(index);
+    setActionMessage(`Caption ${index + 1} copied.`);
+
+    if (copiedCaptionTimeoutRef.current) {
+      clearTimeout(copiedCaptionTimeoutRef.current);
+    }
+
+    copiedCaptionTimeoutRef.current = setTimeout(() => {
+      setCopiedCaptionIndex((current) => (current === index ? null : current));
+    }, 1400);
   }
 
   async function handleDownloadCurrentImage() {
@@ -440,20 +501,77 @@ export default function MobilePostFlow({
             <div className="mt-3 space-y-3">
               {captions.map((item, index) => {
                 const isSelected = index === selectedCaptionIndex;
+                const selectedTagsForCard =
+                  selectedHashtagSelections[index] ?? item.hashtags ?? [];
+                const isBest = index === (generationResult?.generation?.best_caption_index ?? 0);
 
                 return (
-                  <button
+                  <div
                     key={`${index}-${item.caption?.slice(0, 16) ?? index}`}
-                    type="button"
-                    onClick={() => setSelectedCaptionIndex(index)}
-                    className={`w-full rounded-2xl border p-4 text-left transition ${
+                    className={`rounded-2xl border p-4 transition ${
                       isSelected
                         ? "border-zinc-950 bg-zinc-50 ring-1 ring-zinc-950"
-                        : "border-zinc-200 bg-white hover:border-zinc-300"
+                        : "border-zinc-200 bg-white"
                     }`}
                   >
-                    <p className="text-sm leading-6 text-zinc-700">{item.caption}</p>
-                  </button>
+                    <div className="flex items-start justify-between gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedCaptionIndex(index)}
+                        className="flex-1 text-left transition-all duration-200 hover:-translate-y-0.5"
+                      >
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
+                            Caption {index + 1}
+                          </p>
+                          {isBest ? (
+                            <span className="rounded-full bg-brand px-2 py-0.5 text-[10px] font-medium text-white">
+                              Top pick
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="mt-2 text-sm leading-6 text-zinc-700">{item.caption}</p>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleCardCopy(index, item)}
+                        className={`rounded-full px-3 py-1 text-xs font-medium transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
+                          copiedCaptionIndex === index
+                            ? "border border-emerald-500 bg-emerald-500 text-white"
+                            : "border border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 hover:text-zinc-900"
+                        }`}
+                      >
+                        {copiedCaptionIndex === index ? "Copied" : "Copy"}
+                      </button>
+                    </div>
+
+                    {item.hashtags?.length ? (
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {item.hashtags.map((tag) => {
+                          const isTagSelected = selectedTagsForCard.some(
+                            (selectedTag) =>
+                              formatHashtag(selectedTag) === formatHashtag(tag)
+                          );
+
+                          return (
+                            <button
+                              key={tag}
+                              type="button"
+                              onClick={() => toggleSelectedHashtag(index, tag)}
+                              className={`rounded-full px-3 py-1 text-xs ring-1 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
+                                isTagSelected
+                                  ? "bg-brand text-white ring-brand/30"
+                                  : "bg-white text-zinc-600 ring-zinc-200 hover:ring-zinc-300"
+                              }`}
+                            >
+                              {tag.startsWith("#") ? tag : `#${tag}`}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                  </div>
                 );
               })}
             </div>
@@ -509,7 +627,7 @@ export default function MobilePostFlow({
                   type="button"
                   onClick={handleRegenerate}
                   disabled={isSubmitting}
-                  className="rounded-full bg-white px-4 py-2 text-xs font-medium text-zinc-700 ring-1 ring-zinc-200 transition hover:ring-zinc-300 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-full bg-white px-4 py-2 text-xs font-medium text-zinc-700 ring-1 ring-zinc-200 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md hover:ring-zinc-300 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Regenerate
                 </button>
@@ -526,7 +644,7 @@ export default function MobilePostFlow({
                 type="button"
                 onClick={() => setStep(3)}
                 disabled={!selectedCaption}
-                className="w-full rounded-full bg-zinc-950 py-4 text-base font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+                className="w-full rounded-full bg-zinc-950 py-4 text-base font-medium text-white transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Continue
               </button>
@@ -629,21 +747,21 @@ export default function MobilePostFlow({
                 <button
                   type="button"
                   onClick={() => handlePlatformHandoff("instagram")}
-                  className="rounded-2xl bg-gradient-to-r from-pink-500 via-orange-500 to-yellow-500 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-95"
+                  className="rounded-2xl bg-gradient-to-r from-pink-500 via-orange-500 to-yellow-500 px-4 py-3 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:opacity-95"
                 >
                   Post on Instagram
                 </button>
                 <button
                   type="button"
                   onClick={() => handlePlatformHandoff("facebook")}
-                  className="rounded-2xl bg-[#1877F2] px-4 py-3 text-sm font-semibold text-white transition hover:opacity-95"
+                  className="rounded-2xl bg-[#1877F2] px-4 py-3 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:opacity-95"
                 >
                   Post on Facebook
                 </button>
                 <button
                   type="button"
                   onClick={handleDownloadCurrentImage}
-                  className="rounded-2xl bg-zinc-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800"
+                  className="rounded-2xl bg-zinc-950 px-4 py-3 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:bg-zinc-800"
                 >
                   Download image
                 </button>

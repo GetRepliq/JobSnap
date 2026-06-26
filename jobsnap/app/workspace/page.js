@@ -35,9 +35,12 @@ export default function WorkspacePage() {
   const [selectedConversationId, setSelectedConversationId] = useState(null);
   const [selectedCaptionIndex, setSelectedCaptionIndex] = useState(0);
   const [captionDrafts, setCaptionDrafts] = useState({});
+  const [selectedHashtagSelections, setSelectedHashtagSelections] = useState({});
+  const [copiedCaptionIndex, setCopiedCaptionIndex] = useState(null);
   const [loadingConversationId, setLoadingConversationId] = useState(null);
   const fileInputRef = useRef(null);
   const resultsRef = useRef(null);
+  const copiedCaptionTimeoutRef = useRef(null);
 
   const captions = generationResult?.generation?.captions ?? [];
   const bestCaptionIndex = generationResult?.generation?.best_caption_index ?? 0;
@@ -45,7 +48,10 @@ export default function WorkspacePage() {
     captions[selectedCaptionIndex] ?? captions[bestCaptionIndex] ?? captions[0] ?? null;
   const selectedCaptionText =
     captionDrafts[selectedCaptionIndex] ?? selectedCaption?.caption ?? "";
-  const selectedHashtags = selectedCaption?.hashtags ?? [];
+  const selectedHashtags =
+    selectedHashtagSelections[selectedCaptionIndex] ??
+    selectedCaption?.hashtags ??
+    [];
   const selectedHashtagText = selectedHashtags.map(formatHashtag).join(" ");
   const selectedCaptionCopyText = buildCaptionText(
     selectedCaptionText,
@@ -92,13 +98,17 @@ export default function WorkspacePage() {
   function syncCaptionDrafts(generation) {
     const captionsList = generation?.captions ?? [];
     const nextDrafts = {};
+    const nextHashtags = {};
 
     captionsList.forEach((item, index) => {
       nextDrafts[index] = item.caption ?? "";
+      nextHashtags[index] = item.hashtags ?? [];
     });
 
     setCaptionDrafts(nextDrafts);
+    setSelectedHashtagSelections(nextHashtags);
     setSelectedCaptionIndex(generation?.best_caption_index ?? 0);
+    setCopiedCaptionIndex(null);
   }
 
   function applyGenerationPayload(payload) {
@@ -106,6 +116,24 @@ export default function WorkspacePage() {
     setSelectedConversationId(payload.conversationId ?? null);
     syncCaptionDrafts(payload.generation);
     setActionMessage("");
+  }
+
+  function toggleSelectedHashtag(index, hashtag) {
+    const currentTags =
+      selectedHashtagSelections[index] ??
+      captions[index]?.hashtags ??
+      [];
+    const normalizedHashtag = formatHashtag(hashtag);
+    const nextTags = currentTags.some(
+      (tag) => formatHashtag(tag) === normalizedHashtag
+    )
+      ? currentTags.filter((tag) => formatHashtag(tag) !== normalizedHashtag)
+      : [...currentTags, normalizedHashtag];
+
+    setSelectedHashtagSelections((previous) => ({
+      ...previous,
+      [index]: nextTags,
+    }));
   }
 
   async function loadConversation(conversationId) {
@@ -221,7 +249,9 @@ export default function WorkspacePage() {
     setComposerError("");
     setActionMessage("");
     setCaptionDrafts({});
+    setSelectedHashtagSelections({});
     setSelectedCaptionIndex(0);
+    setCopiedCaptionIndex(null);
     removeImage();
   }
 
@@ -282,6 +312,14 @@ export default function WorkspacePage() {
       }
     };
   }, [attachedImage]);
+
+  useEffect(() => {
+    return () => {
+      if (copiedCaptionTimeoutRef.current) {
+        clearTimeout(copiedCaptionTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleAttachClick = () => {
     fileInputRef.current?.click();
@@ -638,7 +676,7 @@ export default function WorkspacePage() {
                   <button
                     type="button"
                     onClick={handleAttachClick}
-                    className="flex items-center gap-2 text-sm text-zinc-500 hover:text-zinc-700"
+                    className="flex items-center gap-2 text-sm text-zinc-500 transition-all duration-200 hover:-translate-y-0.5 hover:text-zinc-700"
                   >
                     <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-zinc-100 text-base text-zinc-500">
                       +
@@ -649,7 +687,7 @@ export default function WorkspacePage() {
                   <button
                     type="submit"
                     disabled={isSubmitting || (!prompt.trim() && !attachedImage)}
-                    className="flex h-11 w-11 items-center justify-center rounded-full bg-brand text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="flex h-11 w-11 items-center justify-center rounded-full bg-brand text-white transition-all duration-200 hover:-translate-y-0.5 hover:scale-105 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50"
                     aria-label="Generate post"
                   >
                     {isSubmitting ? (
@@ -716,6 +754,9 @@ export default function WorkspacePage() {
                       const isBest = index === bestCaptionIndex;
                       const isSelected = index === selectedCaptionIndex;
                       const copyText = buildCaptionText(item.caption, item.hashtags);
+                      const captionHashtags = item.hashtags ?? [];
+                      const selectedTagsForCard =
+                        selectedHashtagSelections[index] ?? captionHashtags;
 
                       return (
                         <div
@@ -742,16 +783,31 @@ export default function WorkspacePage() {
                                 type="button"
                                 onClick={async () => {
                                   await copyTextToClipboard(copyText);
+                                  setCopiedCaptionIndex(index);
                                   setActionMessage(`Caption ${index + 1} copied.`);
+
+                                  if (copiedCaptionTimeoutRef.current) {
+                                    clearTimeout(copiedCaptionTimeoutRef.current);
+                                  }
+
+                                  copiedCaptionTimeoutRef.current = setTimeout(() => {
+                                    setCopiedCaptionIndex((current) =>
+                                      current === index ? null : current
+                                    );
+                                  }, 1400);
                                 }}
-                                className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-medium text-zinc-600 transition hover:border-zinc-300 hover:text-zinc-900"
+                                className={`rounded-full px-3 py-1 text-xs font-medium transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
+                                  copiedCaptionIndex === index
+                                    ? "border border-emerald-500 bg-emerald-500 text-white"
+                                    : "border border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 hover:text-zinc-900"
+                                }`}
                               >
-                                Copy
+                                {copiedCaptionIndex === index ? "Copied" : "Copy"}
                               </button>
                               <button
                                 type="button"
                                 onClick={() => setSelectedCaptionIndex(index)}
-                                className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                                className={`rounded-full px-3 py-1 text-xs font-medium transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
                                   isSelected
                                     ? "bg-brand text-white"
                                     : "bg-white text-zinc-600 ring-1 ring-zinc-200 hover:ring-zinc-300"
@@ -772,14 +828,27 @@ export default function WorkspacePage() {
 
                           {item.hashtags?.length ? (
                             <div className="mt-4 flex flex-wrap gap-2">
-                              {item.hashtags.map((tag) => (
-                                <span
-                                  key={tag}
-                                  className="rounded-full bg-white px-3 py-1 text-xs text-zinc-600 ring-1 ring-zinc-200"
-                                >
-                                  {tag.startsWith("#") ? tag : `#${tag}`}
-                                </span>
-                              ))}
+                              {captionHashtags.map((tag) => {
+                                const isTagSelected = selectedTagsForCard.some(
+                                  (selectedTag) =>
+                                    formatHashtag(selectedTag) === formatHashtag(tag)
+                                );
+
+                                return (
+                                  <button
+                                    key={tag}
+                                    type="button"
+                                    onClick={() => toggleSelectedHashtag(index, tag)}
+                                    className={`rounded-full px-3 py-1 text-xs ring-1 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
+                                      isTagSelected
+                                        ? "bg-brand text-white ring-brand/30"
+                                        : "bg-white text-zinc-600 ring-zinc-200 hover:ring-zinc-300"
+                                    }`}
+                                  >
+                                    {tag.startsWith("#") ? tag : `#${tag}`}
+                                  </button>
+                                );
+                              })}
                             </div>
                           ) : null}
                         </div>
@@ -856,21 +925,21 @@ export default function WorkspacePage() {
                     <button
                       type="button"
                       onClick={() => handlePlatformHandoff("instagram")}
-                      className="rounded-2xl bg-gradient-to-r from-pink-500 via-orange-500 to-yellow-500 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-95"
+                      className="rounded-2xl bg-gradient-to-r from-pink-500 via-orange-500 to-yellow-500 px-4 py-3 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:opacity-95"
                     >
                       Post on Instagram
                     </button>
                     <button
                       type="button"
                       onClick={() => handlePlatformHandoff("facebook")}
-                      className="rounded-2xl bg-[#1877F2] px-4 py-3 text-sm font-semibold text-white transition hover:opacity-95"
+                      className="rounded-2xl bg-[#1877F2] px-4 py-3 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:opacity-95"
                     >
                       Post on Facebook
                     </button>
                     <button
                       type="button"
                       onClick={handleDownloadCurrentImage}
-                      className="rounded-2xl bg-zinc-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800"
+                      className="rounded-2xl bg-zinc-950 px-4 py-3 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:bg-zinc-800"
                     >
                       Download image
                     </button>
