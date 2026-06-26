@@ -38,12 +38,12 @@ export default function Home() {
       <main className="relative flex flex-1 flex-col items-center px-6 pt-10 text-center">
         {/* faint grid backdrop */}
         <div
-          className="pointer-events-none absolute inset-x-0 top-0 h-[520px] opacity-[0.4]"
+          className="pointer-events-none absolute inset-x-0 top-0 h-[760px] opacity-35"
           style={{
             backgroundImage:
-              "linear-gradient(to right, #f1f1f1 1px, transparent 1px), linear-gradient(to bottom, #f1f1f1 1px, transparent 1px)",
+              "linear-gradient(to right, #d4d4d8 1px, transparent 1px), linear-gradient(to bottom, #d4d4d8 1px, transparent 1px)",
             backgroundSize: "40px 40px",
-            maskImage: "radial-gradient(ellipse 60% 100% at 50% 0%, black, transparent)",
+            maskImage: "radial-gradient(ellipse 65% 80% at 50% 35%, black, transparent)",
           }}
         />
 
@@ -129,6 +129,62 @@ export default function Home() {
           />
         </div>
       </main>
+
+      {/* How it works */}
+      <section className="w-full px-6 py-20 sm:px-10">
+        <div className="mx-auto max-w-5xl">
+          <h2 className="text-3xl font-semibold text-zinc-950 sm:text-4xl">
+            How it works
+          </h2>
+          <p className="mt-4 max-w-xl text-base leading-7 text-zinc-600">
+            Take a photo of your finished work right at the job site and type
+            a few quick words. Our AI instantly turns your photo into a
+            ready-to-share social media post with the right captions and
+            hashtags. You can market your business and show off your work
+            before you even pack up your tools
+          </p>
+
+          <div className="mt-14 grid grid-cols-1 gap-12 md:grid-cols-2">
+            {/* video placeholder - swap for real walkthrough video */}
+            <div className="aspect-[5/5.2] w-full rounded-2xl bg-zinc-100" />
+
+            <div className="flex flex-col gap-10">
+              <div>
+                <h3 className="text-xl font-semibold text-zinc-950">
+                  1. Snap Your Work and Add Context
+                </h3>
+                <p className="mt-2 leading-7 text-zinc-600">
+                  Take a quick photo of your completed job right from your
+                  phone. Type a few basic words or speak into your phone to
+                  tell the app what you worked on.
+                </p>
+              </div>
+
+              <div>
+                <h3 className="text-xl font-semibold text-zinc-950">
+                  2. Generate Your Social Media Post
+                </h3>
+                <p className="mt-2 leading-7 text-zinc-600">
+                  Our AI reads your photo and details to create a great post
+                  instantly. It writes a perfect caption and picks the best
+                  hashtags to help local customers find your business.
+                </p>
+              </div>
+
+              <div>
+                <h3 className="text-xl font-semibold text-zinc-950">
+                  3. Review, Edit, and Share
+                </h3>
+                <p className="mt-2 leading-7 text-zinc-600">
+                  Look over the generated post and make any quick changes you
+                  want. Tap share to send it directly to your Facebook,
+                  Instagram, or Google page before you leave the job site.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
