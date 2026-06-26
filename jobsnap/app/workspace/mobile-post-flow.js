@@ -1,10 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-
-function formatHashtag(tag) {
-  return tag.startsWith("#") ? tag : `#${tag}`;
-}
+import {
+  buildCaptionText,
+  copyTextToClipboard,
+  downloadImage,
+  formatHashtag,
+  getPlatformLabel,
+  resolveShareImage,
+  sharePostToPlatform,
+} from "../../lib/post-actions";
 
 function collectHashtags(captions) {
   const seen = new Set();
@@ -40,10 +45,13 @@ export default function MobilePostFlow({
   onConversationCreated,
   onLoadConversation,
   onReset,
+  onGenerationUpdate,
   loadingConversationId,
   initialGeneration = null,
   initialConversationId = null,
   initialPrompt = "",
+  selectedCaptionIndex: initialSelectedCaptionIndex = 0,
+  captionDrafts: initialCaptionDrafts = {},
 }) {
   const fileInputRef = useRef(null);
 
@@ -52,6 +60,7 @@ export default function MobilePostFlow({
   const [attachedImage, setAttachedImage] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
   const [generationResult, setGenerationResult] = useState(
     initialGeneration
       ? {
@@ -61,14 +70,67 @@ export default function MobilePostFlow({
       : null
   );
   const [selectedCaptionIndex, setSelectedCaptionIndex] = useState(
-    initialGeneration?.best_caption_index ?? 0
+    initialSelectedCaptionIndex ?? (initialGeneration?.best_caption_index ?? 0)
+  );
+  const [captionDrafts, setCaptionDrafts] = useState(
+    Object.keys(initialCaptionDrafts).length > 0
+      ? initialCaptionDrafts
+      : initialGeneration?.captions
+        ? Object.fromEntries(
+            initialGeneration.captions.map((item, index) => [index, item.caption ?? ""])
+          )
+        : {}
   );
   const [showHistory, setShowHistory] = useState(false);
 
   const captions = generationResult?.generation?.captions ?? [];
   const hashtags = collectHashtags(captions);
-  const selectedCaption = captions[selectedCaptionIndex];
+  const selectedCaption =
+    captions[selectedCaptionIndex] ?? captions[generationResult?.generation?.best_caption_index ?? 0] ?? captions[0];
+  const selectedCaptionText =
+    captionDrafts[selectedCaptionIndex] ?? selectedCaption?.caption ?? "";
+  const selectedHashtags = selectedCaption?.hashtags ?? [];
+  const selectedHashtagText = selectedHashtags.map(formatHashtag).join(" ");
+  const selectedCaptionCopyText = buildCaptionText(
+    selectedCaptionText,
+    selectedHashtags
+  );
+  const imageSourceUrl = generationResult?.jobImage?.imageUrl ?? null;
+  const activeImage = attachedImage?.file
+    ? {
+        file: attachedImage.file,
+        url: attachedImage.previewUrl,
+        name: attachedImage.file.name,
+      }
+    : imageSourceUrl
+      ? {
+          file: null,
+          url: imageSourceUrl,
+          name:
+            generationResult?.jobImage?.storage_path_original?.split("/").pop() ??
+            "job-image.jpg",
+        }
+      : null;
   const displayHandle = instagramHandle?.replace(/^@/, "") || "your_business";
+
+  function syncCaptionDrafts(generation) {
+    const captionsList = generation?.captions ?? [];
+    const nextDrafts = {};
+
+    captionsList.forEach((item, index) => {
+      nextDrafts[index] = item.caption ?? "";
+    });
+
+    setCaptionDrafts(nextDrafts);
+    setSelectedCaptionIndex(generation?.best_caption_index ?? 0);
+  }
+
+  function applyGenerationPayload(payload) {
+    setGenerationResult(payload);
+    syncCaptionDrafts(payload.generation);
+    setActionMessage("");
+    onGenerationUpdate?.(payload);
+  }
 
   useEffect(() => {
     return () => {
@@ -98,7 +160,7 @@ export default function MobilePostFlow({
   }
 
   async function handleStep1Continue() {
-    if (!attachedImage?.file) {
+    if (!attachedImage?.file && !generationResult?.jobImage?.imageUrl) {
       setError("Please upload a picture to continue.");
       return;
     }
@@ -107,9 +169,23 @@ export default function MobilePostFlow({
     setError("");
 
     try {
+      const imageFile = attachedImage?.file
+        ? attachedImage.file
+        : generationResult?.jobImage?.imageUrl
+          ? await resolveShareImage({
+              imageUrl: generationResult.jobImage.imageUrl,
+              fallbackName:
+                generationResult?.jobImage?.storage_path_original?.split("/").pop() ??
+                "job-image.jpg",
+            })
+          : null;
+
       const formData = new FormData();
       formData.append("prompt", description);
-      formData.append("image", attachedImage.file);
+
+      if (imageFile) {
+        formData.append("image", imageFile);
+      }
 
       const response = await fetch("/api/generate", {
         credentials: "include",
@@ -123,8 +199,7 @@ export default function MobilePostFlow({
         throw new Error(payload?.error || "Failed to generate post.");
       }
 
-      setGenerationResult(payload);
-      setSelectedCaptionIndex(payload.generation?.best_caption_index ?? 0);
+      applyGenerationPayload(payload);
       onConversationCreated?.(payload);
       setStep(2);
     } catch (submitError) {
@@ -145,7 +220,9 @@ export default function MobilePostFlow({
     setDescription("");
     setGenerationResult(null);
     setSelectedCaptionIndex(0);
+    setCaptionDrafts({});
     setError("");
+    setActionMessage("");
     setStep(1);
 
     if (fileInputRef.current) {
@@ -163,11 +240,12 @@ export default function MobilePostFlow({
       const loaded = await onLoadConversation?.(conversationId);
       if (!loaded?.generation) return;
 
-      setGenerationResult({
+      applyGenerationPayload({
         conversationId: loaded.conversationId,
         generation: loaded.generation,
+        extraction: loaded.extraction ?? null,
+        jobImage: loaded.jobImage ?? null,
       });
-      setSelectedCaptionIndex(loaded.generation.best_caption_index ?? 0);
       setDescription(loaded.prompt ?? "");
       setStep(2);
     } catch (loadError) {
@@ -177,11 +255,78 @@ export default function MobilePostFlow({
     }
   }
 
-  const previewImageUrl = attachedImage?.previewUrl;
-  const captionPreview = selectedCaption?.caption ?? "";
-  const captionHashtags = (selectedCaption?.hashtags ?? [])
-    .map(formatHashtag)
-    .join(" ");
+  async function handleCaptionCopy(mode) {
+    if (!selectedCaptionCopyText) {
+      return;
+    }
+
+    const payload =
+      mode === "hashtags"
+        ? selectedHashtagText
+        : mode === "all"
+          ? selectedCaptionCopyText
+          : selectedCaptionText;
+
+    if (!payload) {
+      return;
+    }
+
+    await copyTextToClipboard(payload);
+    setActionMessage(
+      mode === "hashtags"
+        ? "Hashtags copied."
+        : mode === "all"
+          ? "Caption and hashtags copied."
+          : "Caption copied."
+    );
+  }
+
+  async function handleDownloadCurrentImage() {
+    if (!activeImage) {
+      setActionMessage("No image available to download.");
+      return;
+    }
+
+    await downloadImage({
+      imageFile: activeImage.file,
+      imageUrl: activeImage.url,
+      fallbackName: activeImage.name || "job-image.jpg",
+    });
+    setActionMessage("Image download started.");
+  }
+
+  async function handlePlatformHandoff(platform) {
+    if (!selectedCaptionCopyText) {
+      setActionMessage("Add a caption first.");
+      return;
+    }
+
+    try {
+      await sharePostToPlatform({
+        platform,
+        captionText: selectedCaptionCopyText,
+        imageFile: activeImage?.file,
+        imageUrl: activeImage?.url,
+        fallbackName: activeImage?.name || "job-image.jpg",
+        useNativeShare: typeof navigator.share === "function",
+      });
+      setActionMessage(`${getPlatformLabel(platform)} handoff prepared.`);
+    } catch (shareError) {
+      setActionMessage(
+        shareError instanceof Error
+          ? shareError.message
+          : `Could not prepare ${getPlatformLabel(platform)}.`
+      );
+    }
+  }
+
+  async function handleRegenerate() {
+    await handleStep1Continue();
+  }
+
+  const previewImageUrl = attachedImage?.previewUrl ?? generationResult?.jobImage?.imageUrl;
+  const captionPreview = selectedCaptionText ?? "";
+  const captionHashtags = selectedHashtagText;
 
   return (
     <div className="flex min-h-[100dvh] flex-col bg-white text-zinc-950">
@@ -313,7 +458,68 @@ export default function MobilePostFlow({
               })}
             </div>
 
-            {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
+            {selectedCaption ? (
+              <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-zinc-900">
+                    Edit selected caption
+                  </p>
+                  <p className="text-xs text-zinc-500">
+                    Caption {selectedCaptionIndex + 1}
+                  </p>
+                </div>
+                <textarea
+                  rows={4}
+                  value={selectedCaptionText}
+                  onChange={(event) =>
+                    setCaptionDrafts((previous) => ({
+                      ...previous,
+                      [selectedCaptionIndex]: event.target.value,
+                    }))
+                  }
+                  className="mt-3 w-full resize-none rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm leading-6 text-zinc-800 focus:border-zinc-300 focus:outline-none"
+                />
+              </div>
+            ) : null}
+
+            <div className="mt-6 space-y-3">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleCaptionCopy("caption")}
+                  className="rounded-full bg-zinc-950 px-4 py-2 text-xs font-medium text-white transition hover:bg-zinc-800"
+                >
+                  Copy caption
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleCaptionCopy("hashtags")}
+                  className="rounded-full bg-white px-4 py-2 text-xs font-medium text-zinc-700 ring-1 ring-zinc-200 transition hover:ring-zinc-300"
+                >
+                  Copy hashtags
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleCaptionCopy("all")}
+                  className="rounded-full bg-white px-4 py-2 text-xs font-medium text-zinc-700 ring-1 ring-zinc-200 transition hover:ring-zinc-300"
+                >
+                  Copy all
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRegenerate}
+                  disabled={isSubmitting}
+                  className="rounded-full bg-white px-4 py-2 text-xs font-medium text-zinc-700 ring-1 ring-zinc-200 transition hover:ring-zinc-300 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Regenerate
+                </button>
+              </div>
+
+              {error ? <p className="text-sm text-red-600">{error}</p> : null}
+              {actionMessage ? (
+                <p className="text-sm text-zinc-500">{actionMessage}</p>
+              ) : null}
+            </div>
 
             <div className="mt-auto pt-10">
               <button
@@ -418,16 +624,38 @@ export default function MobilePostFlow({
               </div>
             </div>
 
-            <div className="mt-auto pt-10">
+            <div className="mt-4 space-y-3">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <button
+                  type="button"
+                  onClick={() => handlePlatformHandoff("instagram")}
+                  className="rounded-2xl bg-gradient-to-r from-pink-500 via-orange-500 to-yellow-500 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-95"
+                >
+                  Post on Instagram
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handlePlatformHandoff("facebook")}
+                  className="rounded-2xl bg-[#1877F2] px-4 py-3 text-sm font-semibold text-white transition hover:opacity-95"
+                >
+                  Post on Facebook
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDownloadCurrentImage}
+                  className="rounded-2xl bg-zinc-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800"
+                >
+                  Download image
+                </button>
+              </div>
+
+              {actionMessage ? (
+                <p className="text-sm text-zinc-500">{actionMessage}</p>
+              ) : null}
+
               <button
                 type="button"
                 onClick={() => {
-                  const copyText = [captionPreview, captionHashtags]
-                    .filter(Boolean)
-                    .join("\n\n");
-                  if (copyText) {
-                    navigator.clipboard.writeText(copyText);
-                  }
                   handleFinish();
                 }}
                 className="w-full rounded-full bg-emerald-500 py-4 text-base font-medium text-white transition hover:bg-emerald-600"

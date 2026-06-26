@@ -106,6 +106,7 @@ export async function POST(request) {
   let generatedPostId = null;
   let conversationId = null;
   let jobPostId = null;
+  let jobImageUrl = null;
   let messageIds = [];
   let supabase;
   let adminSupabase;
@@ -217,6 +218,17 @@ export async function POST(request) {
       }
 
       jobImageId = jobImage.id;
+
+      const { data: signedImage, error: signedImageError } =
+        await adminSupabase.storage
+          .from(JOB_IMAGES_BUCKET)
+          .createSignedUrl(storagePathOriginal, 60 * 60 * 24 * 7);
+
+      if (signedImageError) {
+        throw createRouteError(signedImageError.message);
+      }
+
+      jobImageUrl = signedImage?.signedUrl ?? null;
     }
 
     const extraction = await extractContextFromImage({
@@ -263,6 +275,10 @@ export async function POST(request) {
     const assistantContent = {
       extraction,
       generation,
+      jobPostId,
+      jobImageId,
+      jobImageUrl,
+      jobImageStoragePath: storagePathOriginal,
     };
 
     const { data: insertedMessages, error: messageError } = await adminSupabase
@@ -366,6 +382,15 @@ export async function POST(request) {
         caption: bestCaption?.caption || prompt || "Generated post",
         hashtags: hashtagsText,
       },
+      jobImage:
+        jobImageId && storagePathOriginal
+          ? {
+              id: jobImageId,
+              job_post_id: jobPostId,
+              storage_path_original: storagePathOriginal,
+              imageUrl: jobImageUrl,
+            }
+          : null,
       usage: {
         business_id: business.id,
         posts_used: postsUsed,

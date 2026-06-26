@@ -4,6 +4,15 @@ import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "../../lib/supabase/client";
+import {
+  buildCaptionText,
+  copyTextToClipboard,
+  downloadImage,
+  formatHashtag,
+  getPlatformLabel,
+  resolveShareImage,
+  sharePostToPlatform,
+} from "../../lib/post-actions";
 import { useIsMobile } from "../../lib/hooks/use-is-mobile";
 import MobilePostFlow from "./mobile-post-flow";
 
@@ -22,13 +31,43 @@ export default function WorkspacePage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [generationResult, setGenerationResult] = useState(null);
   const [composerError, setComposerError] = useState("");
+  const [actionMessage, setActionMessage] = useState("");
   const [selectedConversationId, setSelectedConversationId] = useState(null);
+  const [selectedCaptionIndex, setSelectedCaptionIndex] = useState(0);
+  const [captionDrafts, setCaptionDrafts] = useState({});
   const [loadingConversationId, setLoadingConversationId] = useState(null);
   const fileInputRef = useRef(null);
   const resultsRef = useRef(null);
 
   const captions = generationResult?.generation?.captions ?? [];
   const bestCaptionIndex = generationResult?.generation?.best_caption_index ?? 0;
+  const selectedCaption =
+    captions[selectedCaptionIndex] ?? captions[bestCaptionIndex] ?? captions[0] ?? null;
+  const selectedCaptionText =
+    captionDrafts[selectedCaptionIndex] ?? selectedCaption?.caption ?? "";
+  const selectedHashtags = selectedCaption?.hashtags ?? [];
+  const selectedHashtagText = selectedHashtags.map(formatHashtag).join(" ");
+  const selectedCaptionCopyText = buildCaptionText(
+    selectedCaptionText,
+    selectedHashtags
+  );
+  const imageSourceUrl = generationResult?.jobImage?.imageUrl ?? null;
+  const activeImage = attachedImage?.file
+    ? {
+        file: attachedImage.file,
+        url: attachedImage.previewUrl,
+        name: attachedImage.file.name,
+      }
+    : imageSourceUrl
+      ? {
+          file: null,
+          url: imageSourceUrl,
+          name:
+            generationResult?.jobImage?.storage_path_original?.split("/").pop() ??
+            "job-image.jpg",
+        }
+      : null;
+  const usageSummary = generationResult?.usage ?? null;
 
   function formatConversationDate(dateString) {
     const date = new Date(dateString);
@@ -48,6 +87,25 @@ export default function WorkspacePage() {
     }
 
     return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }
+
+  function syncCaptionDrafts(generation) {
+    const captionsList = generation?.captions ?? [];
+    const nextDrafts = {};
+
+    captionsList.forEach((item, index) => {
+      nextDrafts[index] = item.caption ?? "";
+    });
+
+    setCaptionDrafts(nextDrafts);
+    setSelectedCaptionIndex(generation?.best_caption_index ?? 0);
+  }
+
+  function applyGenerationPayload(payload) {
+    setGenerationResult(payload);
+    setSelectedConversationId(payload.conversationId ?? null);
+    syncCaptionDrafts(payload.generation);
+    setActionMessage("");
   }
 
   async function loadConversation(conversationId) {
@@ -71,12 +129,19 @@ export default function WorkspacePage() {
 
       let generation = null;
       let extraction = null;
+      let jobImage = null;
 
       if (assistantMessage?.content) {
         try {
           const parsed = JSON.parse(assistantMessage.content);
           generation = parsed.generation ?? null;
           extraction = parsed.extraction ?? null;
+          jobImage = parsed.jobImageUrl
+            ? {
+                imageUrl: parsed.jobImageUrl,
+                storage_path_original: parsed.jobImageStoragePath ?? null,
+              }
+            : null;
         } catch {
           throw new Error("Could not read this conversation.");
         }
@@ -90,15 +155,20 @@ export default function WorkspacePage() {
         generation,
         extraction,
         prompt: userPrompt,
+        jobImage,
       };
 
       setSelectedConversationId(conversationId);
       setPrompt(userPrompt);
-      setGenerationResult({
+      const loadedResult = {
         conversationId,
         generation,
         extraction,
-      });
+        jobImage,
+      };
+      setGenerationResult(loadedResult);
+      syncCaptionDrafts(generation);
+      setActionMessage("");
 
       if (attachedImage?.previewUrl) {
         URL.revokeObjectURL(attachedImage.previewUrl);
@@ -124,12 +194,12 @@ export default function WorkspacePage() {
   }
 
   function handleConversationCreated(payload) {
-    setGenerationResult(payload);
-    setSelectedConversationId(payload.conversationId ?? null);
+    applyGenerationPayload(payload);
 
     if (payload.conversationId) {
       const title =
-        payload.generation?.captions?.[0]?.caption?.slice(0, 80) ||
+        payload.generation?.captions?.[payload.generation?.best_caption_index ?? 0]
+          ?.caption?.slice(0, 80) ||
         prompt.slice(0, 80) ||
         "New post";
 
@@ -149,6 +219,9 @@ export default function WorkspacePage() {
     setGenerationResult(null);
     setPrompt("");
     setComposerError("");
+    setActionMessage("");
+    setCaptionDrafts({});
+    setSelectedCaptionIndex(0);
     removeImage();
   }
 
@@ -244,10 +317,16 @@ export default function WorkspacePage() {
     }
   };
 
-  const handleSubmit = async (event) => {
-    event.preventDefault();
+  const handleGenerate = async (event) => {
+    event?.preventDefault?.();
+
+    if (isSubmitting) {
+      return;
+    }
+
     setIsSubmitting(true);
     setComposerError("");
+    setActionMessage("");
 
     try {
       const supabase = createClient();
@@ -261,11 +340,22 @@ export default function WorkspacePage() {
         return;
       }
 
+      const imageFile = attachedImage?.file
+        ? attachedImage.file
+        : generationResult?.jobImage?.imageUrl
+          ? await resolveShareImage({
+              imageUrl: generationResult.jobImage.imageUrl,
+              fallbackName:
+                generationResult?.jobImage?.storage_path_original?.split("/").pop() ??
+                "job-image.jpg",
+            })
+          : null;
+
       const formData = new FormData();
       formData.append("prompt", prompt);
 
-      if (attachedImage?.file) {
-        formData.append("image", attachedImage.file);
+      if (imageFile) {
+        formData.append("image", imageFile);
       }
 
       const response = await fetch("/api/generate", {
@@ -280,12 +370,12 @@ export default function WorkspacePage() {
         throw new Error(payload?.error || "Failed to generate post.");
       }
 
-      setGenerationResult(payload);
-      setSelectedConversationId(payload.conversationId ?? null);
+      applyGenerationPayload(payload);
 
       if (payload.conversationId) {
         const title =
-          payload.generation?.captions?.[0]?.caption?.slice(0, 80) ||
+          payload.generation?.captions?.[payload.generation?.best_caption_index ?? 0]
+            ?.caption?.slice(0, 80) ||
           prompt.slice(0, 80) ||
           "New post";
 
@@ -311,6 +401,75 @@ export default function WorkspacePage() {
     }
   };
 
+  async function handleCaptionCopy(mode) {
+    if (!selectedCaptionCopyText) {
+      return;
+    }
+
+    const payload =
+      mode === "hashtags"
+        ? selectedHashtagText
+        : mode === "all"
+          ? selectedCaptionCopyText
+          : selectedCaptionText;
+
+    if (!payload) {
+      return;
+    }
+
+    await copyTextToClipboard(payload);
+    setActionMessage(
+      mode === "hashtags"
+        ? "Hashtags copied."
+        : mode === "all"
+          ? "Caption and hashtags copied."
+          : "Caption copied."
+    );
+  }
+
+  async function handleDownloadCurrentImage() {
+    if (!activeImage) {
+      setActionMessage("No image available to download.");
+      return;
+    }
+
+    await downloadImage({
+      imageFile: activeImage.file,
+      imageUrl: activeImage.url,
+      fallbackName: activeImage.name || "job-image.jpg",
+    });
+    setActionMessage("Image download started.");
+  }
+
+  async function handlePlatformHandoff(platform) {
+    if (!selectedCaptionCopyText) {
+      setActionMessage("Add a caption first.");
+      return;
+    }
+
+    try {
+      await sharePostToPlatform({
+        platform,
+        captionText: selectedCaptionCopyText,
+        imageFile: activeImage?.file,
+        imageUrl: activeImage?.url,
+        fallbackName: activeImage?.name || "job-image.jpg",
+        useNativeShare: isMobile && typeof navigator.share === "function",
+      });
+      setActionMessage(`${getPlatformLabel(platform)} handoff prepared.`);
+    } catch (error) {
+      setActionMessage(
+        error instanceof Error
+          ? error.message
+          : `Could not prepare ${getPlatformLabel(platform)}.`
+      );
+    }
+  }
+
+  async function handleRegenerate() {
+    await handleGenerate();
+  }
+
   if (loading || isMobile === null) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-white text-sm text-zinc-600">
@@ -328,6 +487,9 @@ export default function WorkspacePage() {
         onConversationCreated={handleConversationCreated}
         onLoadConversation={loadConversation}
         onReset={handleNewPost}
+        onGenerationUpdate={applyGenerationPayload}
+        selectedCaptionIndex={selectedCaptionIndex}
+        captionDrafts={captionDrafts}
         initialGeneration={
           selectedConversationId ? generationResult?.generation ?? null : null
         }
@@ -428,7 +590,7 @@ export default function WorkspacePage() {
               </h2>
 
               <form
-                onSubmit={handleSubmit}
+                onSubmit={handleGenerate}
                 className="mt-8 w-full max-w-[46rem] rounded-3xl bg-white p-5 text-left shadow-xl shadow-blue-900/10 sm:p-6"
               >
                 {attachedImage ? (
@@ -531,26 +693,29 @@ export default function WorkspacePage() {
                   <div>
                     <p className="text-sm font-medium text-brand">Your post options</p>
                     <p className="mt-1 text-sm text-zinc-500">
-                      Pick a caption below — the highlighted one is our top pick.
+                      Pick a caption below, then refine it before handing it off.
                     </p>
                   </div>
-                  {generationResult.conversationId ? (
-                    <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs text-zinc-500">
-                      Saved to history
-                    </span>
-                  ) : null}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {usageSummary?.free_posts_remaining !== undefined ? (
+                      <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+                        {usageSummary.free_posts_remaining} free posts left
+                      </span>
+                    ) : null}
+                    {generationResult.conversationId ? (
+                      <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs text-zinc-500">
+                        Saved to history
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
 
                 {captions.length > 0 ? (
                   <div className="mt-5 space-y-4">
                     {captions.map((item, index) => {
                       const isBest = index === bestCaptionIndex;
-                      const hashtagText = (item.hashtags ?? [])
-                        .map((tag) => (tag.startsWith("#") ? tag : `#${tag}`))
-                        .join(" ");
-                      const copyText = [item.caption, hashtagText]
-                        .filter(Boolean)
-                        .join("\n\n");
+                      const isSelected = index === selectedCaptionIndex;
+                      const copyText = buildCaptionText(item.caption, item.hashtags);
 
                       return (
                         <div
@@ -572,13 +737,29 @@ export default function WorkspacePage() {
                                 </span>
                               ) : null}
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => navigator.clipboard.writeText(copyText)}
-                              className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-medium text-zinc-600 transition hover:border-zinc-300 hover:text-zinc-900"
-                            >
-                              Copy
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  await copyTextToClipboard(copyText);
+                                  setActionMessage(`Caption ${index + 1} copied.`);
+                                }}
+                                className="rounded-full border border-zinc-200 bg-white px-3 py-1 text-xs font-medium text-zinc-600 transition hover:border-zinc-300 hover:text-zinc-900"
+                              >
+                                Copy
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setSelectedCaptionIndex(index)}
+                                className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                                  isSelected
+                                    ? "bg-brand text-white"
+                                    : "bg-white text-zinc-600 ring-1 ring-zinc-200 hover:ring-zinc-300"
+                                }`}
+                              >
+                                {isSelected ? "Selected" : "Use this"}
+                              </button>
+                            </div>
                           </div>
 
                           {item.angle ? (
@@ -610,6 +791,95 @@ export default function WorkspacePage() {
                     Generation completed but no captions were returned. Try submitting again.
                   </p>
                 )}
+
+                {selectedCaption ? (
+                  <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-sm font-semibold text-zinc-900">
+                        Edit selected caption
+                      </p>
+                      <p className="text-xs text-zinc-500">
+                        Caption {selectedCaptionIndex + 1}
+                      </p>
+                    </div>
+                    <textarea
+                      rows={4}
+                      value={selectedCaptionText}
+                      onChange={(event) =>
+                        setCaptionDrafts((previous) => ({
+                          ...previous,
+                          [selectedCaptionIndex]: event.target.value,
+                        }))
+                      }
+                      className="mt-3 w-full resize-none rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm leading-6 text-zinc-800 focus:border-zinc-300 focus:outline-none"
+                    />
+                    <p className="mt-2 text-xs text-zinc-500">
+                      Fine-tune the caption before you copy or hand it off.
+                    </p>
+                  </div>
+                ) : null}
+
+                <div className="mt-6 space-y-3">
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleCaptionCopy("caption")}
+                      className="rounded-full bg-zinc-950 px-4 py-2 text-xs font-medium text-white transition hover:bg-zinc-800"
+                    >
+                      Copy caption
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleCaptionCopy("hashtags")}
+                      className="rounded-full bg-white px-4 py-2 text-xs font-medium text-zinc-700 ring-1 ring-zinc-200 transition hover:ring-zinc-300"
+                    >
+                      Copy hashtags
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleCaptionCopy("all")}
+                      className="rounded-full bg-white px-4 py-2 text-xs font-medium text-zinc-700 ring-1 ring-zinc-200 transition hover:ring-zinc-300"
+                    >
+                      Copy all
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleRegenerate}
+                      disabled={isSubmitting}
+                      className="rounded-full bg-white px-4 py-2 text-xs font-medium text-zinc-700 ring-1 ring-zinc-200 transition hover:ring-zinc-300 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Regenerate
+                    </button>
+                  </div>
+
+                  <div className="grid gap-2 sm:grid-cols-3">
+                    <button
+                      type="button"
+                      onClick={() => handlePlatformHandoff("instagram")}
+                      className="rounded-2xl bg-gradient-to-r from-pink-500 via-orange-500 to-yellow-500 px-4 py-3 text-sm font-semibold text-white transition hover:opacity-95"
+                    >
+                      Post on Instagram
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handlePlatformHandoff("facebook")}
+                      className="rounded-2xl bg-[#1877F2] px-4 py-3 text-sm font-semibold text-white transition hover:opacity-95"
+                    >
+                      Post on Facebook
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDownloadCurrentImage}
+                      className="rounded-2xl bg-zinc-950 px-4 py-3 text-sm font-semibold text-white transition hover:bg-zinc-800"
+                    >
+                      Download image
+                    </button>
+                  </div>
+                </div>
+
+                {actionMessage ? (
+                  <p className="mt-4 text-sm text-zinc-500">{actionMessage}</p>
+                ) : null}
               </div>
             </div>
           ) : null}
