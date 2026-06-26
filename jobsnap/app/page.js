@@ -38,7 +38,7 @@ export default function Home() {
       <main className="relative flex flex-1 flex-col items-center px-6 pt-10 text-center">
         {/* faint grid backdrop */}
         <div
-          className="pointer-events-none absolute inset-x-0 top-0 h-[760px] opacity-35"
+          className="pointer-events-none absolute inset-x-0 top-0 h-[760px] opacity-70"
           style={{
             backgroundImage:
               "linear-gradient(to right, #d4d4d8 1px, transparent 1px), linear-gradient(to bottom, #d4d4d8 1px, transparent 1px)",
@@ -87,7 +87,7 @@ export default function Home() {
         </div>
 
         {/* Before / After labels */}
-        <div className="relative z-10 mt-20 flex w-full max-w-xl items-center justify-between px-4">
+        <div className="relative z-10 mt-20 flex w-full max-w-md items-center justify-between px-4">
           <span className="font-handwritten text-2xl text-zinc-900">
             Before
           </span>
@@ -185,6 +185,79 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      {/* Waitlist CTA */}
+      <section className="w-full px-6 py-24 text-center sm:px-10">
+        <div className="mx-auto max-w-2xl">
+          {/* mark placeholder */}
+          <div className="mx-auto mb-4 h-8 w-8 rounded-md bg-zinc-200" />
+
+          <h2 className="text-4xl font-semibold text-zinc-950 sm:text-5xl">
+            Join the Beta for Free Early Access
+          </h2>
+          <p className="mx-auto mt-4 max-w-xl text-base leading-7 text-zinc-600">
+            We are launching soon and giving free access to our first 50
+            local business owners. Enter your email below to secure your
+            spot and start growing your social media presence without the
+            extra work.
+          </p>
+
+          <div className="mx-auto mt-8 flex max-w-xl items-center gap-2 rounded-2xl bg-white p-2 shadow-[0_8px_30px_rgba(0,0,0,0.06)] ring-1 ring-zinc-100">
+            <input
+              type="email"
+              placeholder="Enter your email address"
+              className="flex-1 bg-transparent px-4 py-3 text-sm text-zinc-700 outline-none placeholder:text-zinc-400"
+            />
+            <button className="shrink-0 rounded-xl bg-brand px-6 py-3 text-sm font-medium text-brand-foreground hover:opacity-90">
+              Join Waitlist
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="w-full border-t border-zinc-100 px-6 py-16 sm:px-10">
+        <div className="mx-auto grid max-w-5xl grid-cols-1 gap-12 sm:grid-cols-[1.4fr_1fr_1fr]">
+          <div>
+            <div className="flex items-center gap-2">
+              {/* logo placeholder - swap for real mark */}
+              <div className="h-7 w-7 rounded-md bg-zinc-200" />
+              <span className="font-display text-lg text-zinc-900">
+                JobSnap
+              </span>
+            </div>
+            <p className="mt-4 max-w-sm text-sm leading-6 text-zinc-600">
+              JobSnap turns finished job photos into ready-to-post social
+              content. Snap a photo, get a caption and hashtags, and share
+              before you even leave the site.
+            </p>
+          </div>
+
+          <div className="text-center">
+            <h4 className="text-base font-semibold text-zinc-950">
+              Navigation
+            </h4>
+            <ul className="mt-4 flex flex-col gap-3 text-sm text-zinc-600">
+              <li><a href="#" className="hover:text-zinc-950">Home</a></li>
+              <li><a href="#" className="hover:text-zinc-950">Services</a></li>
+              <li><a href="#" className="hover:text-zinc-950">Plans</a></li>
+              <li><a href="#" className="hover:text-zinc-950">Contact</a></li>
+            </ul>
+          </div>
+
+          <div className="text-center">
+            <h4 className="text-base font-semibold text-zinc-950">
+              Contact
+            </h4>
+            <ul className="mt-4 flex flex-col gap-3 text-sm text-zinc-600">
+              <li><a href="#" className="hover:text-zinc-950">Instagram</a></li>
+              <li><a href="#" className="hover:text-zinc-950">Twitter</a></li>
+              <li><a href="#" className="hover:text-zinc-950">Email</a></li>
+              <li><a href="#" className="hover:text-zinc-950">Book a Call</a></li>
+            </ul>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
