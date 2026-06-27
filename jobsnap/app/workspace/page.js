@@ -16,13 +16,40 @@ import {
 import { useIsMobile } from "../../lib/hooks/use-is-mobile";
 import MobilePostFlow from "./mobile-post-flow";
 
+const GENERATION_ERROR_MESSAGE =
+  "Something went wrong on our end. Please try uploading the image again!";
+
+function getGenerationErrorMessage(payload, response) {
+  if (response.status === 401) {
+    return "Please sign in again to continue.";
+  }
+
+  if (response.status === 402 || response.status === 429) {
+    return payload?.error || GENERATION_ERROR_MESSAGE;
+  }
+
+  if (response.status >= 400 && response.status < 500 && payload?.error) {
+    return payload.error;
+  }
+
+  return payload?.error || GENERATION_ERROR_MESSAGE;
+}
+
+function applyUsageUpdate(setFreePostsRemaining, usage) {
+  if (usage?.free_posts_remaining !== undefined) {
+    setFreePostsRemaining(usage.free_posts_remaining);
+  }
+}
+
 export default function WorkspacePage() {
   const router = useRouter();
   const isMobile = useIsMobile();
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [userName, setUserName] = useState("there");
   const [businessName, setBusinessName] = useState("");
   const [instagramHandle, setInstagramHandle] = useState("");
+  const [freePostsRemaining, setFreePostsRemaining] = useState(null);
   const [conversations, setConversations] = useState([]);
   const [jobs, setJobs] = useState([]);
   const [initial, setInitial] = useState("J");
@@ -73,7 +100,12 @@ export default function WorkspacePage() {
             "job-image.jpg",
         }
       : null;
-  const usageSummary = generationResult?.usage ?? null;
+  const usageSummary =
+    generationResult?.usage?.free_posts_remaining !== undefined
+      ? generationResult.usage
+      : freePostsRemaining !== null
+        ? { free_posts_remaining: freePostsRemaining }
+        : null;
 
   function formatConversationDate(dateString) {
     const date = new Date(dateString);
@@ -259,47 +291,74 @@ export default function WorkspacePage() {
     const supabase = createClient();
 
     const load = async () => {
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser();
+      try {
+        const {
+          data: { user },
+          error: userError,
+        } = await supabase.auth.getUser();
 
-      if (userError || !user) {
-        router.replace("/auth");
-        return;
+        if (userError || !user) {
+          router.replace("/auth");
+          return;
+        }
+
+        const [{ data: profile }, { data: business }, { data: chatRows }, { data: jobRows }] =
+          await Promise.all([
+            supabase.from("profiles").select("full_name").eq("id", user.id).maybeSingle(),
+            supabase
+              .from("businesses")
+              .select("id, business_name, instagram_handle")
+              .eq("owner_id", user.id)
+              .order("created_at", { ascending: false })
+              .limit(1),
+            supabase
+              .from("conversations")
+              .select("id,title,created_at")
+              .eq("created_by", user.id)
+              .order("created_at", { ascending: false })
+              .limit(30),
+            supabase
+              .from("job_posts")
+              .select("id,title,status,created_at")
+              .eq("created_by", user.id)
+              .order("created_at", { ascending: false })
+              .limit(5),
+          ]);
+
+        const businessRow = business?.[0];
+        let usageRow = null;
+
+        if (businessRow?.id) {
+          const { data, error: usageError } = await supabase
+            .from("usage")
+            .select("free_posts_remaining, posts_used")
+            .eq("business_id", businessRow.id)
+            .maybeSingle();
+
+          if (usageError) {
+            throw usageError;
+          }
+
+          usageRow = data;
+        }
+
+        const name = profile?.full_name?.trim() || user.email?.split("@")[0] || "there";
+        setUserName(name);
+        setBusinessName(businessRow?.business_name || "");
+        setInstagramHandle(businessRow?.instagram_handle || "");
+        setFreePostsRemaining(usageRow?.free_posts_remaining ?? 20);
+        setConversations(chatRows ?? []);
+        setJobs(jobRows ?? []);
+        setInitial(name.charAt(0).toUpperCase());
+      } catch (error) {
+        setLoadError(
+          error instanceof Error
+            ? error.message
+            : "We couldn't load your workspace. Please refresh and try again."
+        );
+      } finally {
+        setLoading(false);
       }
-
-      const [{ data: profile }, { data: business }, { data: chatRows }, { data: jobRows }] =
-        await Promise.all([
-          supabase.from("profiles").select("full_name").eq("id", user.id).maybeSingle(),
-          supabase
-            .from("businesses")
-            .select("business_name, instagram_handle")
-            .eq("owner_id", user.id)
-            .order("created_at", { ascending: false })
-            .limit(1),
-          supabase
-            .from("conversations")
-            .select("id,title,created_at")
-            .eq("created_by", user.id)
-            .order("created_at", { ascending: false })
-            .limit(30),
-          supabase
-            .from("job_posts")
-            .select("id,title,status,created_at")
-            .eq("created_by", user.id)
-            .order("created_at", { ascending: false })
-            .limit(5),
-        ]);
-
-      const name = profile?.full_name?.trim() || user.email?.split("@")[0] || "there";
-      setUserName(name);
-      setBusinessName(business?.[0]?.business_name || "");
-      setInstagramHandle(business?.[0]?.instagram_handle || "");
-      setConversations(chatRows ?? []);
-      setJobs(jobRows ?? []);
-      setInitial(name.charAt(0).toUpperCase());
-      setLoading(false);
     };
 
     load();
@@ -402,12 +461,19 @@ export default function WorkspacePage() {
         body: formData,
       });
 
-      const payload = await response.json();
-
-      if (!response.ok) {
-        throw new Error(payload?.error || "Failed to generate post.");
+      let payload = {};
+      try {
+        payload = await response.json();
+      } catch {
+        payload = {};
       }
 
+      if (!response.ok) {
+        applyUsageUpdate(setFreePostsRemaining, payload?.usage);
+        throw new Error(getGenerationErrorMessage(payload, response));
+      }
+
+      applyUsageUpdate(setFreePostsRemaining, payload?.usage);
       applyGenerationPayload(payload);
 
       if (payload.conversationId) {
@@ -432,7 +498,7 @@ export default function WorkspacePage() {
       });
     } catch (error) {
       setComposerError(
-        error instanceof Error ? error.message : "Something went wrong."
+        error instanceof Error ? error.message : GENERATION_ERROR_MESSAGE
       );
     } finally {
       setIsSubmitting(false);
@@ -516,11 +582,31 @@ export default function WorkspacePage() {
     );
   }
 
+  if (loadError) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-white px-6">
+        <div className="max-w-md text-center">
+          <p className="text-sm font-medium text-zinc-900">Couldn&apos;t load your workspace</p>
+          <p className="mt-2 text-sm text-zinc-500">{loadError}</p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="mt-4 rounded-full bg-zinc-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800"
+          >
+            Try again
+          </button>
+        </div>
+      </main>
+    );
+  }
+
   if (isMobile) {
     return (
       <MobilePostFlow
         instagramHandle={instagramHandle}
         conversations={conversations}
+        freePostsRemaining={freePostsRemaining}
+        onUsageUpdate={setFreePostsRemaining}
         loadingConversationId={loadingConversationId}
         onConversationCreated={handleConversationCreated}
         onLoadConversation={loadConversation}
@@ -687,19 +773,27 @@ export default function WorkspacePage() {
                   <button
                     type="submit"
                     disabled={isSubmitting || (!prompt.trim() && !attachedImage)}
-                    className="flex h-11 w-11 items-center justify-center rounded-full bg-brand text-white transition-all duration-200 hover:-translate-y-0.5 hover:scale-105 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50"
+                    className="flex h-7 w-7 items-center justify-center rounded-lg bg-zinc-100 text-base text-zinc-500 transition-all duration-200 hover:-translate-y-0.5 hover:bg-zinc-200 hover:text-zinc-700 disabled:cursor-not-allowed disabled:opacity-50"
                     aria-label="Generate post"
                   >
                     {isSubmitting ? (
-                      <span className="text-sm">...</span>
+                      <span className="text-xs leading-none">…</span>
                     ) : (
-                      <span className="text-lg leading-none">→</span>
+                      <span className="leading-none">→</span>
                     )}
                   </button>
                 </div>
 
+                {freePostsRemaining !== null ? (
+                  <p className="mt-3 text-center text-xs text-zinc-400">
+                    {freePostsRemaining} free {freePostsRemaining === 1 ? "post" : "posts"} left
+                  </p>
+                ) : null}
+
                 {composerError ? (
-                  <p className="mt-3 text-sm text-red-600">{composerError}</p>
+                  <p className="mt-3 rounded-2xl bg-red-50 px-3 py-2 text-sm text-red-700">
+                    {composerError}
+                  </p>
                 ) : null}
               </form>
             </div>

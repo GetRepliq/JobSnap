@@ -41,6 +41,101 @@ function createRouteError(message, status = 400) {
   return error;
 }
 
+const DEFAULT_FREE_POSTS = 20;
+
+async function reserveUsage(adminSupabase, businessId) {
+  const { data: usageRow, error: usageReadError } = await adminSupabase
+    .from("usage")
+    .select("posts_used, free_posts_remaining")
+    .eq("business_id", businessId)
+    .maybeSingle();
+
+  if (usageReadError) {
+    throw createRouteError(usageReadError.message);
+  }
+
+  const freeRemaining = usageRow?.free_posts_remaining ?? DEFAULT_FREE_POSTS;
+
+  if (freeRemaining <= 0) {
+    throw createRouteError("You've used all your free posts.", 402);
+  }
+
+  const postsUsed = (usageRow?.posts_used ?? 0) + 1;
+  const freePostsRemaining = Math.max(freeRemaining - 1, 0);
+
+  const { error: usageUpsertError } = await adminSupabase.from("usage").upsert(
+    {
+      business_id: businessId,
+      posts_used: postsUsed,
+      free_posts_remaining: freePostsRemaining,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "business_id" }
+  );
+
+  if (usageUpsertError) {
+    throw createRouteError(usageUpsertError.message);
+  }
+
+  return {
+    business_id: businessId,
+    posts_used: postsUsed,
+    free_posts_remaining: freePostsRemaining,
+  };
+}
+
+async function refundUsage(adminSupabase, businessId) {
+  const { data: usageRow, error: usageReadError } = await adminSupabase
+    .from("usage")
+    .select("posts_used, free_posts_remaining")
+    .eq("business_id", businessId)
+    .maybeSingle();
+
+  if (usageReadError) {
+    return null;
+  }
+
+  const postsUsed = Math.max((usageRow?.posts_used ?? 1) - 1, 0);
+  const freePostsRemaining = Math.min(
+    (usageRow?.free_posts_remaining ?? 0) + 1,
+    DEFAULT_FREE_POSTS
+  );
+
+  const { error: usageUpsertError } = await adminSupabase.from("usage").upsert(
+    {
+      business_id: businessId,
+      posts_used: postsUsed,
+      free_posts_remaining: freePostsRemaining,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "business_id" }
+  );
+
+  if (usageUpsertError) {
+    return null;
+  }
+
+  return {
+    business_id: businessId,
+    posts_used: postsUsed,
+    free_posts_remaining: freePostsRemaining,
+  };
+}
+
+function getPublicErrorMessage(error) {
+  const status = error?.status ?? 500;
+
+  if (status === 401 || status === 402 || status === 429) {
+    return error instanceof Error ? error.message : "Request could not be completed.";
+  }
+
+  if (status >= 400 && status < 500 && error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  return "Something went wrong on our end. Please try uploading the image again!";
+}
+
 function formatStorageUploadError(uploadError) {
   const message = uploadError?.message || "Failed to upload image.";
 
@@ -111,6 +206,9 @@ export async function POST(request) {
   let messageIds = [];
   let supabase;
   let adminSupabase;
+  let usageReserved = false;
+  let reservedBusinessId = null;
+  let reservedUsage = null;
 
   try {
     const formData = await request.formData();
@@ -258,6 +356,10 @@ export async function POST(request) {
       jobImageUrl = signedImage?.signedUrl ?? null;
     }
 
+    reservedUsage = await reserveUsage(adminSupabase, business.id);
+    usageReserved = true;
+    reservedBusinessId = business.id;
+
     const extraction = await extractContextFromImage({
       imageFile,
       business,
@@ -363,36 +465,6 @@ export async function POST(request) {
       throw createRouteError(jobPostUpdateError.message);
     }
 
-    const { data: usageRow, error: usageReadError } = await adminSupabase
-      .from("usage")
-      .select("posts_used, free_posts_remaining")
-      .eq("business_id", business.id)
-      .maybeSingle();
-
-    if (usageReadError) {
-      throw createRouteError(usageReadError.message);
-    }
-
-    const postsUsed = (usageRow?.posts_used ?? 0) + 1;
-    const freePostsRemaining = Math.max(
-      (usageRow?.free_posts_remaining ?? 20) - 1,
-      0
-    );
-
-    const { error: usageUpsertError } = await adminSupabase.from("usage").upsert(
-      {
-        business_id: business.id,
-        posts_used: postsUsed,
-        free_posts_remaining: freePostsRemaining,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "business_id" }
-    );
-
-    if (usageUpsertError) {
-      throw createRouteError(usageUpsertError.message);
-    }
-
     return NextResponse.json({
       conversationId,
       profile: profileRows?.[0],
@@ -418,11 +490,7 @@ export async function POST(request) {
               imageUrl: jobImageUrl,
             }
           : null,
-      usage: {
-        business_id: business.id,
-        posts_used: postsUsed,
-        free_posts_remaining: freePostsRemaining,
-      },
+      usage: reservedUsage,
       extraction,
       generation,
     });
@@ -439,8 +507,17 @@ export async function POST(request) {
       });
     }
 
+    let refundedUsage = null;
+
+    if (usageReserved && reservedBusinessId && adminSupabase) {
+      refundedUsage = await refundUsage(adminSupabase, reservedBusinessId);
+    }
+
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Something went wrong." },
+      {
+        error: getPublicErrorMessage(error),
+        usage: refundedUsage,
+      },
       { status: error?.status ?? 500 }
     );
   }

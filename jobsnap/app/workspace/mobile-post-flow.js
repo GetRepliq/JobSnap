@@ -11,6 +11,25 @@ import {
   sharePostToPlatform,
 } from "../../lib/post-actions";
 
+const GENERATION_ERROR_MESSAGE =
+  "Something went wrong on our end. Please try uploading the image again!";
+
+function getGenerationErrorMessage(payload, response) {
+  if (response.status === 401) {
+    return "Please sign in again to continue.";
+  }
+
+  if (response.status === 402 || response.status === 429) {
+    return payload?.error || GENERATION_ERROR_MESSAGE;
+  }
+
+  if (response.status >= 400 && response.status < 500 && payload?.error) {
+    return payload.error;
+  }
+
+  return payload?.error || GENERATION_ERROR_MESSAGE;
+}
+
 function collectHashtags(captions) {
   const seen = new Set();
   const tags = [];
@@ -42,6 +61,8 @@ function formatConversationDate(dateString) {
 export default function MobilePostFlow({
   instagramHandle,
   conversations = [],
+  freePostsRemaining = null,
+  onUsageUpdate,
   onConversationCreated,
   onLoadConversation,
   onReset,
@@ -229,10 +250,22 @@ export default function MobilePostFlow({
         body: formData,
       });
 
-      const payload = await response.json();
+      let payload = {};
+      try {
+        payload = await response.json();
+      } catch {
+        payload = {};
+      }
 
       if (!response.ok) {
-        throw new Error(payload?.error || "Failed to generate post.");
+        if (payload?.usage?.free_posts_remaining !== undefined) {
+          onUsageUpdate?.(payload.usage.free_posts_remaining);
+        }
+        throw new Error(getGenerationErrorMessage(payload, response));
+      }
+
+      if (payload?.usage?.free_posts_remaining !== undefined) {
+        onUsageUpdate?.(payload.usage.free_posts_remaining);
       }
 
       applyGenerationPayload(payload);
@@ -240,7 +273,7 @@ export default function MobilePostFlow({
       setStep(2);
     } catch (submitError) {
       setError(
-        submitError instanceof Error ? submitError.message : "Something went wrong."
+        submitError instanceof Error ? submitError.message : GENERATION_ERROR_MESSAGE
       );
     } finally {
       setIsSubmitting(false);
@@ -460,9 +493,18 @@ export default function MobilePostFlow({
               />
             </div>
 
-            {error ? <p className="mt-4 text-sm text-red-600">{error}</p> : null}
+            {error ? (
+              <p className="mt-4 rounded-2xl bg-red-50 px-3 py-2 text-sm text-red-700">
+                {error}
+              </p>
+            ) : null}
 
             <div className="mt-auto pt-10">
+              {freePostsRemaining !== null ? (
+                <p className="mb-3 text-center text-xs text-zinc-400">
+                  {freePostsRemaining} free {freePostsRemaining === 1 ? "post" : "posts"} left
+                </p>
+              ) : null}
               <button
                 type="button"
                 onClick={handleStep1Continue}
