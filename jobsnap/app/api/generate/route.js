@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { createServerSupabaseClient } from "../../../lib/supabase/server";
 import { createAdminSupabaseClient } from "../../../lib/supabase/admin";
+import { checkUserRateLimit } from "../../../lib/supabase/user-route";
 import {
   extractContextFromImage,
   generatePostPackage,
@@ -129,6 +130,18 @@ export async function POST(request) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    const aiRateLimit = checkUserRateLimit(user.id, "AI_GENERATION");
+
+    if (!aiRateLimit.allowed) {
+      return NextResponse.json(
+        { error: "AI generation rate limit exceeded. Try again in a moment." },
+        {
+          status: 429,
+          headers: { "Retry-After": String(aiRateLimit.retryAfterSeconds) },
+        }
+      );
+    }
+
     const [{ data: profileRows, error: profileError }, { data: businessRows, error: businessError }] =
       await Promise.all([
         supabase
@@ -160,6 +173,20 @@ export async function POST(request) {
         { error: "Complete onboarding before using the composer." },
         { status: 400 }
       );
+    }
+
+    if (imageFile) {
+      const uploadRateLimit = checkUserRateLimit(user.id, "STORAGE_UPLOAD");
+
+      if (!uploadRateLimit.allowed) {
+        return NextResponse.json(
+          { error: "Upload rate limit exceeded. Try again in a moment." },
+          {
+            status: 429,
+            headers: { "Retry-After": String(uploadRateLimit.retryAfterSeconds) },
+          }
+        );
+      }
     }
 
     adminSupabase = createAdminSupabaseClient();
