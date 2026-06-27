@@ -6,15 +6,17 @@ import { useRouter } from "next/navigation";
 import { createClient } from "../../lib/supabase/client";
 import {
   buildCaptionText,
-  copyTextToClipboard,
   downloadImage,
   formatHashtag,
   getPlatformLabel,
   resolveShareImage,
   sharePostToPlatform,
+  stripHashtagsFromCaption,
 } from "../../lib/post-actions";
 import { useIsMobile } from "../../lib/hooks/use-is-mobile";
 import MobilePostFlow from "./mobile-post-flow";
+import InstagramPostPreview from "./instagram-post-preview";
+import CaptionCardStack from "./caption-card-stack";
 
 const GENERATION_ERROR_MESSAGE =
   "Something went wrong on our end. Please try uploading the image again!";
@@ -67,7 +69,6 @@ export default function WorkspacePage() {
   const [loadingConversationId, setLoadingConversationId] = useState(null);
   const fileInputRef = useRef(null);
   const resultsRef = useRef(null);
-  const copiedCaptionTimeoutRef = useRef(null);
 
   const captions = generationResult?.generation?.captions ?? [];
   const bestCaptionIndex = generationResult?.generation?.best_caption_index ?? 0;
@@ -133,7 +134,7 @@ export default function WorkspacePage() {
     const nextHashtags = {};
 
     captionsList.forEach((item, index) => {
-      nextDrafts[index] = item.caption ?? "";
+      nextDrafts[index] = stripHashtagsFromCaption(item.caption ?? "");
       nextHashtags[index] = item.hashtags ?? [];
     });
 
@@ -372,14 +373,6 @@ export default function WorkspacePage() {
     };
   }, [attachedImage]);
 
-  useEffect(() => {
-    return () => {
-      if (copiedCaptionTimeoutRef.current) {
-        clearTimeout(copiedCaptionTimeoutRef.current);
-      }
-    };
-  }, []);
-
   const handleAttachClick = () => {
     fileInputRef.current?.click();
   };
@@ -504,32 +497,6 @@ export default function WorkspacePage() {
       setIsSubmitting(false);
     }
   };
-
-  async function handleCaptionCopy(mode) {
-    if (!selectedCaptionCopyText) {
-      return;
-    }
-
-    const payload =
-      mode === "hashtags"
-        ? selectedHashtagText
-        : mode === "all"
-          ? selectedCaptionCopyText
-          : selectedCaptionText;
-
-    if (!payload) {
-      return;
-    }
-
-    await copyTextToClipboard(payload);
-    setActionMessage(
-      mode === "hashtags"
-        ? "Hashtags copied."
-        : mode === "all"
-          ? "Caption and hashtags copied."
-          : "Caption copied."
-    );
-  }
 
   async function handleDownloadCurrentImage() {
     if (!activeImage) {
@@ -818,221 +785,79 @@ export default function WorkspacePage() {
           {generationResult ? (
             <div
               ref={resultsRef}
-              className="mx-auto mt-8 w-full max-w-[46rem] scroll-mt-8"
+              className="mx-auto mt-8 w-full max-w-6xl scroll-mt-8"
             >
-              <div className="rounded-3xl border border-zinc-200 bg-white p-5 shadow-sm sm:p-6">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="text-sm font-medium text-brand">Your post options</p>
-                    <p className="mt-1 text-sm text-zinc-500">
-                      Pick a caption below, then refine it before handing it off.
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {usageSummary?.free_posts_remaining !== undefined ? (
-                      <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
-                        {usageSummary.free_posts_remaining} free posts left
-                      </span>
-                    ) : null}
-                    {generationResult.conversationId ? (
-                      <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs text-zinc-500">
-                        Saved to history
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-
-                {captions.length > 0 ? (
-                  <div className="mt-5 space-y-4">
-                    {captions.map((item, index) => {
-                      const isBest = index === bestCaptionIndex;
-                      const isSelected = index === selectedCaptionIndex;
-                      const copyText = buildCaptionText(item.caption, item.hashtags);
-                      const captionHashtags = item.hashtags ?? [];
-                      const selectedTagsForCard =
-                        selectedHashtagSelections[index] ?? captionHashtags;
-
-                      return (
-                        <div
-                          key={`${index}-${item.caption?.slice(0, 12) ?? index}`}
-                          className={`rounded-2xl border p-4 sm:p-5 ${
-                            isBest
-                              ? "border-brand bg-brand/5 ring-1 ring-brand/20"
-                              : "border-zinc-200 bg-zinc-50"
-                          }`}
-                        >
-                          <div className="flex flex-wrap items-center justify-between gap-3">
-                            <div className="flex items-center gap-2">
-                              <p className="text-sm font-semibold text-zinc-900">
-                                Caption {index + 1}
-                              </p>
-                              {isBest ? (
-                                <span className="rounded-full bg-brand px-2 py-0.5 text-xs font-medium text-white">
-                                  Top pick
-                                </span>
-                              ) : null}
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  await copyTextToClipboard(copyText);
-                                  setCopiedCaptionIndex(index);
-                                  setActionMessage(`Caption ${index + 1} copied.`);
-
-                                  if (copiedCaptionTimeoutRef.current) {
-                                    clearTimeout(copiedCaptionTimeoutRef.current);
-                                  }
-
-                                  copiedCaptionTimeoutRef.current = setTimeout(() => {
-                                    setCopiedCaptionIndex((current) =>
-                                      current === index ? null : current
-                                    );
-                                  }, 1400);
-                                }}
-                                className={`rounded-full px-2 py-0.5 text-[11px] font-medium transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
-                                  copiedCaptionIndex === index
-                                    ? "border border-emerald-500 bg-emerald-500 text-white"
-                                    : "border border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 hover:text-zinc-900"
-                                }`}
-                              >
-                                {copiedCaptionIndex === index ? "Copied" : "Copy"}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setSelectedCaptionIndex(index)}
-                                className={`rounded-full px-2 py-0.5 text-[11px] font-medium transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
-                                  isSelected
-                                    ? "bg-brand text-white"
-                                    : "bg-white text-zinc-600 ring-1 ring-zinc-200 hover:ring-zinc-300"
-                                }`}
-                              >
-                                {isSelected ? "Selected" : "Use this"}
-                              </button>
-                            </div>
-                          </div>
-
-                          {item.angle ? (
-                            <p className="mt-2 text-xs text-zinc-500">{item.angle}</p>
-                          ) : null}
-
-                          {isSelected ? (
-                            <textarea
-                              rows={5}
-                              style={{ fontSize: "14px", lineHeight: "1.575rem" }}
-                              value={captionDrafts[index] ?? item.caption ?? ""}
-                              onChange={(event) =>
-                                setCaptionDrafts((previous) => ({
-                                  ...previous,
-                                  [index]: event.target.value,
-                                }))
-                              }
-                              className="mt-3 w-full resize-none border-none bg-transparent p-0 text-sm leading-[1.575rem] text-zinc-800 focus:outline-none focus:ring-0 max-h-[120px] overflow-y-auto"
-                            />
-                          ) : (
-                            <p className="mt-3 text-sm leading-[1.575rem] text-zinc-800">
-                              {item.caption}
-                            </p>
-                          )}
-
-                          {item.hashtags?.length ? (
-                            <div className="mt-4 flex flex-wrap gap-2">
-                              {captionHashtags.map((tag) => {
-                                const isTagSelected = selectedTagsForCard.some(
-                                  (selectedTag) =>
-                                    formatHashtag(selectedTag) === formatHashtag(tag)
-                                );
-
-                                return (
-                                  <button
-                                    key={tag}
-                                    type="button"
-                                    style={{ fontSize: "13px" }}
-                                    onClick={() => toggleSelectedHashtag(index, tag)}
-                                    className={`rounded-full px-2 py-0.5 text-sm ring-1 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
-                                      isTagSelected
-                                        ? "bg-brand text-white ring-brand/30"
-                                        : "bg-white text-zinc-600 ring-zinc-200 hover:ring-zinc-300"
-                                    }`}
-                                  >
-                                    {tag.startsWith("#") ? tag : `#${tag}`}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          ) : null}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <p className="mt-5 text-sm text-zinc-500">
-                    Generation completed but no captions were returned. Try submitting again.
-                  </p>
-                )}
-
-                <div className="mt-6 space-y-3">
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={() => handleCaptionCopy("caption")}
-                      className="rounded-full bg-zinc-950 px-4 py-2 text-xs font-medium text-white transition hover:bg-zinc-800"
-                    >
-                      Copy caption
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleCaptionCopy("hashtags")}
-                      className="rounded-full bg-white px-4 py-2 text-xs font-medium text-zinc-700 ring-1 ring-zinc-200 transition hover:ring-zinc-300"
-                    >
-                      Copy hashtags
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleCaptionCopy("all")}
-                      className="rounded-full bg-white px-4 py-2 text-xs font-medium text-zinc-700 ring-1 ring-zinc-200 transition hover:ring-zinc-300"
-                    >
-                      Copy all
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleRegenerate}
-                      disabled={isSubmitting}
-                      className="rounded-full bg-white px-4 py-2 text-xs font-medium text-zinc-700 ring-1 ring-zinc-200 transition hover:ring-zinc-300 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      Regenerate
-                    </button>
-                  </div>
-
-                  <div className="grid gap-2 sm:grid-cols-3">
-                    <button
-                      type="button"
-                      onClick={() => handlePlatformHandoff("instagram")}
-                      className="rounded-2xl bg-gradient-to-r from-pink-500 via-orange-500 to-yellow-500 px-4 py-3 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:opacity-95"
-                    >
-                      Post on Instagram
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handlePlatformHandoff("facebook")}
-                      className="rounded-2xl bg-[#1877F2] px-4 py-3 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:opacity-95"
-                    >
-                      Post on Facebook
-                    </button>
+              {captions.length > 0 ? (
+                <div className="grid items-start gap-8 lg:grid-cols-[minmax(280px,340px)_1fr] lg:gap-10">
+                  <div className="lg:sticky lg:top-8">
+                    <InstagramPostPreview
+                      instagramHandle={instagramHandle}
+                      imageUrl={activeImage?.url}
+                      captionText={selectedCaptionText}
+                      hashtagText={selectedHashtagText}
+                    />
+                    <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                      {usageSummary?.free_posts_remaining !== undefined ? (
+                        <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+                          {usageSummary.free_posts_remaining} free posts left
+                        </span>
+                      ) : null}
+                      {generationResult.conversationId ? (
+                        <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs text-zinc-500">
+                          Saved to history
+                        </span>
+                      ) : null}
+                    </div>
                     <button
                       type="button"
                       onClick={handleDownloadCurrentImage}
-                      className="rounded-2xl bg-zinc-950 px-4 py-3 text-sm font-semibold text-white transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:bg-zinc-800"
+                      className="mx-auto mt-3 flex w-full max-w-sm items-center justify-center rounded-xl bg-zinc-950 px-4 py-2.5 text-xs font-semibold text-white transition hover:bg-zinc-800"
                     >
                       Download image
                     </button>
                   </div>
-                </div>
 
-                {actionMessage ? (
-                  <p className="mt-4 text-sm text-zinc-500">{actionMessage}</p>
-                ) : null}
+                  <CaptionCardStack
+                    captions={captions}
+                    bestCaptionIndex={bestCaptionIndex}
+                    activeIndex={selectedCaptionIndex}
+                    onActiveIndexChange={setSelectedCaptionIndex}
+                    captionDrafts={captionDrafts}
+                    onCaptionDraftChange={(index, value) =>
+                      setCaptionDrafts((previous) => ({
+                        ...previous,
+                        [index]: value,
+                      }))
+                    }
+                    selectedHashtagSelections={selectedHashtagSelections}
+                    onToggleHashtag={toggleSelectedHashtag}
+                    onPostInstagram={() => handlePlatformHandoff("instagram")}
+                    onPostFacebook={() => handlePlatformHandoff("facebook")}
+                    copiedCaptionIndex={copiedCaptionIndex}
+                    onCopiedCaptionIndexChange={setCopiedCaptionIndex}
+                    onCopySuccess={setActionMessage}
+                  />
+                </div>
+              ) : (
+                <p className="text-sm text-zinc-500">
+                  Generation completed but no captions were returned. Try submitting again.
+                </p>
+              )}
+
+              <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={handleRegenerate}
+                  disabled={isSubmitting}
+                  className="rounded-full bg-white px-4 py-2 text-xs font-medium text-zinc-700 ring-1 ring-zinc-200 transition hover:ring-zinc-300 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Regenerate captions
+                </button>
               </div>
+
+              {actionMessage ? (
+                <p className="mt-4 text-center text-sm text-zinc-500">{actionMessage}</p>
+              ) : null}
             </div>
           ) : null}
         </div>

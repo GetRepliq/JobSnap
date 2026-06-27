@@ -9,6 +9,19 @@ export function formatHashtag(tag) {
   return tag.startsWith("#") ? tag : `#${tag}`;
 }
 
+export function stripHashtagsFromCaption(text) {
+  if (!text) {
+    return "";
+  }
+
+  return text
+    .split("\n")
+    .map((line) => line.replace(/(?:^|\s)#[\w]+/g, "").trim())
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
+}
+
 export function buildCaptionText(caption, hashtags = []) {
   const hashtagText = hashtags.map(formatHashtag).join(" ").trim();
   return [caption?.trim(), hashtagText].filter(Boolean).join("\n\n");
