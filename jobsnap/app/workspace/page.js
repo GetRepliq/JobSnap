@@ -796,7 +796,7 @@ export default function WorkspacePage() {
                                     );
                                   }, 1400);
                                 }}
-                                className={`rounded-full px-3 py-1 text-xs font-medium transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
+                                className={`rounded-full px-2 py-0.5 text-[11px] font-medium transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
                                   copiedCaptionIndex === index
                                     ? "border border-emerald-500 bg-emerald-500 text-white"
                                     : "border border-zinc-200 bg-white text-zinc-600 hover:border-zinc-300 hover:text-zinc-900"
@@ -807,7 +807,7 @@ export default function WorkspacePage() {
                               <button
                                 type="button"
                                 onClick={() => setSelectedCaptionIndex(index)}
-                                className={`rounded-full px-3 py-1 text-xs font-medium transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
+                                className={`rounded-full px-2 py-0.5 text-[11px] font-medium transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
                                   isSelected
                                     ? "bg-brand text-white"
                                     : "bg-white text-zinc-600 ring-1 ring-zinc-200 hover:ring-zinc-300"
@@ -822,9 +822,24 @@ export default function WorkspacePage() {
                             <p className="mt-2 text-xs text-zinc-500">{item.angle}</p>
                           ) : null}
 
-                          <p className="mt-3 text-sm leading-7 text-zinc-800">
-                            {item.caption}
-                          </p>
+                          {isSelected ? (
+                            <textarea
+                              rows={5}
+                              style={{ fontSize: "14px", lineHeight: "1.575rem" }}
+                              value={captionDrafts[index] ?? item.caption ?? ""}
+                              onChange={(event) =>
+                                setCaptionDrafts((previous) => ({
+                                  ...previous,
+                                  [index]: event.target.value,
+                                }))
+                              }
+                              className="mt-3 w-full resize-none border-none bg-transparent p-0 text-sm leading-[1.575rem] text-zinc-800 focus:outline-none focus:ring-0 max-h-[120px] overflow-y-auto"
+                            />
+                          ) : (
+                            <p className="mt-3 text-sm leading-[1.575rem] text-zinc-800">
+                              {item.caption}
+                            </p>
+                          )}
 
                           {item.hashtags?.length ? (
                             <div className="mt-4 flex flex-wrap gap-2">
@@ -838,8 +853,9 @@ export default function WorkspacePage() {
                                   <button
                                     key={tag}
                                     type="button"
+                                    style={{ fontSize: "13px" }}
                                     onClick={() => toggleSelectedHashtag(index, tag)}
-                                    className={`rounded-full px-3 py-1 text-xs ring-1 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
+                                    className={`rounded-full px-2 py-0.5 text-sm ring-1 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${
                                       isTagSelected
                                         ? "bg-brand text-white ring-brand/30"
                                         : "bg-white text-zinc-600 ring-zinc-200 hover:ring-zinc-300"
@@ -860,33 +876,6 @@ export default function WorkspacePage() {
                     Generation completed but no captions were returned. Try submitting again.
                   </p>
                 )}
-
-                {selectedCaption ? (
-                  <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 p-4">
-                    <div className="flex items-center justify-between gap-3">
-                      <p className="text-sm font-semibold text-zinc-900">
-                        Edit selected caption
-                      </p>
-                      <p className="text-xs text-zinc-500">
-                        Caption {selectedCaptionIndex + 1}
-                      </p>
-                    </div>
-                    <textarea
-                      rows={4}
-                      value={selectedCaptionText}
-                      onChange={(event) =>
-                        setCaptionDrafts((previous) => ({
-                          ...previous,
-                          [selectedCaptionIndex]: event.target.value,
-                        }))
-                      }
-                      className="mt-3 w-full resize-none rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm leading-6 text-zinc-800 focus:border-zinc-300 focus:outline-none"
-                    />
-                    <p className="mt-2 text-xs text-zinc-500">
-                      Fine-tune the caption before you copy or hand it off.
-                    </p>
-                  </div>
-                ) : null}
 
                 <div className="mt-6 space-y-3">
                   <div className="flex flex-wrap gap-2">
