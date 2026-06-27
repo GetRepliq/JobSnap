@@ -38,12 +38,12 @@ export default function Home() {
       <main className="relative flex flex-1 flex-col items-center px-6 pt-10 text-center">
         {/* faint grid backdrop */}
         <div
-          className="pointer-events-none absolute inset-x-0 top-0 h-[760px] opacity-70"
+          className="pointer-events-none absolute inset-x-0 top-0 h-[760px] opacity-60"
           style={{
             backgroundImage:
               "linear-gradient(to right, #d4d4d8 1px, transparent 1px), linear-gradient(to bottom, #d4d4d8 1px, transparent 1px)",
             backgroundSize: "40px 40px",
-            maskImage: "radial-gradient(ellipse 65% 80% at 50% 35%, black, transparent)",
+            maskImage: "radial-gradient(ellipse 40% 48% at 50% 35%, black, transparent)",
           }}
         />
 
@@ -63,7 +63,7 @@ export default function Home() {
         </h1>
 
         {/* Subtext */}
-        <p className="relative z-10 mt-6 max-w-xl text-base leading-7 text-zinc-600">
+        <p className="relative z-10 mt-6 max-w-xl text-base leading-6 text-zinc-600">
           Stop wasting time stressing over captions and hashtags after a long
           shift. Just upload a photo of your finished work, and our AI
           instantly creates platform-ready social media posts tailored to
@@ -74,13 +74,13 @@ export default function Home() {
         <div className="relative z-10 mt-8 flex items-center gap-3">
           <Link
             href="/auth"
-            className="rounded-full bg-brand px-6 py-3 text-sm font-medium text-brand-foreground hover:opacity-90"
+            className="rounded-full bg-brand px-5 py-2 text-md font-medium text-brand-foreground hover:opacity-90"
           >
             Get Started
           </Link>
           <a
             href="#"
-            className="rounded-full bg-zinc-100 px-6 py-3 text-sm font-medium text-zinc-900 hover:bg-zinc-200"
+            className="rounded-full bg-zinc-100 px-5 py-2 text-md font-medium text-zinc-900 hover:bg-zinc-200"
           >
             How it works
           </a>
@@ -131,12 +131,12 @@ export default function Home() {
       </main>
 
       {/* How it works */}
-      <section className="w-full px-6 py-20 sm:px-10">
+      <section className="mt-[-100] w-full px-6 py-20 sm:px-10">
         <div className="mx-auto max-w-5xl">
           <h2 className="text-3xl font-semibold text-zinc-950 sm:text-4xl">
             How it works
           </h2>
-          <p className="mt-4 max-w-xl text-base leading-7 text-zinc-600">
+          <p className="mt-4 max-w-xl text-base leading-6 text-zinc-600">
             Take a photo of your finished work right at the job site and type
             a few quick words. Our AI instantly turns your photo into a
             ready-to-share social media post with the right captions and
@@ -153,7 +153,7 @@ export default function Home() {
                 <h3 className="text-xl font-semibold text-zinc-950">
                   1. Snap Your Work and Add Context
                 </h3>
-                <p className="mt-2 leading-7 text-zinc-600">
+                <p className="mt-2 leading-6 text-zinc-600">
                   Take a quick photo of your completed job right from your
                   phone. Type a few basic words or speak into your phone to
                   tell the app what you worked on.
@@ -164,7 +164,7 @@ export default function Home() {
                 <h3 className="text-xl font-semibold text-zinc-950">
                   2. Generate Your Social Media Post
                 </h3>
-                <p className="mt-2 leading-7 text-zinc-600">
+                <p className="mt-2 leading-6 text-zinc-600">
                   Our AI reads your photo and details to create a great post
                   instantly. It writes a perfect caption and picks the best
                   hashtags to help local customers find your business.
@@ -175,7 +175,7 @@ export default function Home() {
                 <h3 className="text-xl font-semibold text-zinc-950">
                   3. Review, Edit, and Share
                 </h3>
-                <p className="mt-2 leading-7 text-zinc-600">
+                <p className="mt-2 leading-6 text-zinc-600">
                   Look over the generated post and make any quick changes you
                   want. Tap share to send it directly to your Facebook,
                   Instagram, or Google page before you leave the job site.
@@ -187,15 +187,15 @@ export default function Home() {
       </section>
 
       {/* Waitlist CTA */}
-      <section className="w-full px-6 py-24 text-center sm:px-10">
-        <div className="mx-auto max-w-2xl">
+      <section className="mt-[-80] w-full px-6 py-24 text-center sm:px-10">
+        <div className="mx-auto max-w-3xl">
           {/* mark placeholder */}
           <div className="mx-auto mb-4 h-8 w-8 rounded-md bg-zinc-200" />
 
           <h2 className="text-4xl font-semibold text-zinc-950 sm:text-5xl">
             Join the Beta for Free Early Access
           </h2>
-          <p className="mx-auto mt-4 max-w-xl text-base leading-7 text-zinc-600">
+          <p className="mx-auto mt-4 max-w-xl text-base leading-6 text-zinc-600">
             We are launching soon and giving free access to our first 50
             local business owners. Enter your email below to secure your
             spot and start growing your social media presence without the
